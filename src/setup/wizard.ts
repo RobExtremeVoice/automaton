@@ -46,12 +46,15 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   console.log(chalk.dim(`  Private key stored at: ${getAutomatonDir()}/wallet.json\n`));
 
   // ─── 2. Provision API key ─────────────────────────────────────
+  const standalone = process.env.AUTOMATON_STANDALONE === "true";
   const provisionLabel = walletChainType === "solana"
     ? "  [2/6] Provisioning Conway API key (SIWS)..."
     : "  [2/6] Provisioning Conway API key (SIWE)...";
   console.log(chalk.cyan(provisionLabel));
   let apiKey = "";
-  try {
+  if (standalone) {
+    console.log(chalk.green("  Standalone mode: Conway provisioning skipped.\n"));
+  } else try {
     const result = await provision(undefined, walletChainType === "solana" ? chainIdentity : undefined);
     apiKey = result.apiKey;
     console.log(chalk.green(`  API key provisioned: ${result.keyPrefix}...\n`));
@@ -97,7 +100,7 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   console.log(chalk.green(`  Creator: ${creatorAddress}\n`));
 
   console.log(chalk.white("  Optional: bring your own inference provider keys (press Enter to skip)."));
-  const openaiApiKey = await promptOptional("OpenAI API key (sk-..., optional)");
+  const openaiApiKey = process.env.OPENAI_API_KEY || await promptOptional("OpenAI API key (sk-..., optional)");
   if (openaiApiKey && !openaiApiKey.startsWith("sk-")) {
     console.log(chalk.yellow("  Warning: OpenAI keys usually start with sk-. Saving anyway."));
   }

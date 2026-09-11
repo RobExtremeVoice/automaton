@@ -48,11 +48,13 @@ export async function buildTickContext(
   const startedAt = new Date();
 
   // Fetch balances ONCE
-  let creditBalance = 0;
-  try {
-    creditBalance = await conway.getCreditsBalance();
-  } catch (err: any) {
-    logger.error("Failed to fetch credit balance", err instanceof Error ? err : undefined);
+  let creditBalance = process.env.AUTOMATON_STANDALONE === "true" ? 100_000 : 0;
+  if (process.env.AUTOMATON_STANDALONE !== "true") {
+    try {
+      creditBalance = await conway.getCreditsBalance();
+    } catch (err: any) {
+      logger.error("Failed to fetch credit balance", err instanceof Error ? err : undefined);
+    }
   }
 
   let usdcBalance = 0;

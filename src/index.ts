@@ -186,6 +186,8 @@ Version:    ${config.version}
 async function run(): Promise<void> {
   logger.info(`[${new Date().toISOString()}] Conway Automaton v${VERSION} starting...`);
 
+  const standalone = process.env.AUTOMATON_STANDALONE === "true";
+
   // Load config — first run triggers interactive setup wizard
   let config = loadConfig();
   if (!config) {
@@ -196,9 +198,14 @@ async function run(): Promise<void> {
   // Load wallet (chain-aware)
   const { account, chainIdentity, chainType: walletChainType } = await getWallet();
   const resolvedChainType = config.chainType || walletChainType || "evm";
-  const apiKey = config.conwayApiKey || loadApiKeyFromConfig();
-  if (!apiKey) {
+  const apiKey = process.env.CONWAY_API_KEY || config.conwayApiKey || loadApiKeyFromConfig() || "";
+  const openaiApiKey = process.env.OPENAI_API_KEY || config.openaiApiKey;
+  if (!standalone && !apiKey) {
     logger.error("No API key found. Run: automaton --provision");
+    process.exit(1);
+  }
+  if (standalone && !openaiApiKey) {
+    logger.error("Standalone mode requires OPENAI_API_KEY");
     process.exit(1);
   }
 
@@ -247,7 +254,7 @@ async function run(): Promise<void> {
 
   // Register automaton identity (one-time, immutable)
   const registrationState = db.getIdentity("conwayRegistrationStatus");
-  if (registrationState !== "registered") {
+  if (!standalone && registrationState !== "registered") {
     try {
       const genesisPromptHash = config.genesisPrompt
         ? keccak256(toHex(config.genesisPrompt))
@@ -290,7 +297,7 @@ async function run(): Promise<void> {
     defaultModel: config.inferenceModel,
     maxTokens: config.maxTokensPerTurn,
     lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-5-mini",
-    openaiApiKey: config.openaiApiKey,
+    openaiApiKey,
     anthropicApiKey: config.anthropicApiKey,
     ollamaBaseUrl,
     getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,
@@ -302,7 +309,7 @@ async function run(): Promise<void> {
 
   // Create social client (chain-aware: pass ChainIdentity for Solana signing)
   let social: SocialClientInterface | undefined;
-  if (config.socialRelayUrl) {
+  if (!standalone && config.socialRelayUrl) {
     social = createSocialClient(config.socialRelayUrl, resolvedChainType === "solana" ? chainIdentity : account);
     logger.info(`[${new Date().toISOString()}] Social relay: ${config.socialRelayUrl}`);
   }
@@ -338,7 +345,7 @@ async function run(): Promise<void> {
 
   // Bootstrap topup: buy minimum credits ($5) from USDC so the agent can start.
   // The agent decides larger topups itself via the topup_credits tool.
-  try {
+  if (!standalone) try {
     let bootstrapTimer: ReturnType<typeof setTimeout>;
     const bootstrapTimeout = new Promise<null>((_, reject) => {
       bootstrapTimer = setTimeout(() => reject(new Error("bootstrap topup timed out")), 15_000);

@@ -96,7 +96,14 @@ export async function runAgentLoop(
   const { identity, config, db, conway, inference, social, skills, policyEngine, spendTracker, onStateChange, onTurnComplete, ollamaBaseUrl } =
     options;
 
-  const builtinTools = createBuiltinTools(identity.sandboxId);
+  const conwayOnlyTools = new Set([
+    "check_credits", "transfer_credits", "topup_credits", "create_sandbox",
+    "delete_sandbox", "spawn_child", "start_child", "fund_child",
+    "register_domain", "manage_dns", "expose_port", "remove_port",
+  ]);
+  const builtinTools = createBuiltinTools(identity.sandboxId).filter(
+    (tool) => process.env.AUTOMATON_STANDALONE !== "true" || !conwayOnlyTools.has(tool.name),
+  );
   const installedTools = loadInstalledTools(db);
   const tools = [...builtinTools, ...installedTools];
   const toolContext: ToolContext = {
