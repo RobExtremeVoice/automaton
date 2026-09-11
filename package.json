@@ -57,14 +57,14 @@
     "js-tiktoken": "^1.0.21",
     "openai": "^6.24.0",
     "ora": "^8.0.0",
-    "simple-git": "^3.24.0",
+    "simple-git": "^3.36.0",
     "@solana/web3.js": "^1.98.0",
     "bs58": "^6.0.0",
     "siwe": "^2.3.0",
     "tweetnacl": "^1.0.3",
     "ulid": "^2.3.0",
     "viem": "^2.44.2",
-    "yaml": "^2.4.0"
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
@@ -79,6 +79,17 @@
     "onlyBuiltDependencies": [
       "better-sqlite3",
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "gray-matter>js-yaml": "3.15.2",
+      "rpc-websockets>ws": "8.21.0",
+      "rpc-websockets>uuid": "11.1.1",
+      "jayson>ws": "7.5.11",
+      "jayson>uuid": "11.1.1",
+      "jayson>stream-json": "3.5.0",
+      "ethers>ws": "8.21.0",
+      "openai>ws": "8.21.0",
+      "ws": "8.21.0"
+    }
   }
 }
