@@ -201,7 +201,7 @@ export async function runAgentLoop(
         harnessRegistry,
         identity,
         config,
-        allowedEditRoot: process.cwd(),
+        allowedEditRoot: process.env.AUTOMATON_STANDALONE === "true" ? path.join(process.env.HOME || process.cwd(), ".automaton", "work") : process.cwd(),
         tools,
         toolContext,
         policyEngine,
