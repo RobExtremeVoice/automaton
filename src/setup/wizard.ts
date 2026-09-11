@@ -173,7 +173,9 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     sandboxId: env.sandboxId,
     walletAddress,
     apiKey,
-    openaiApiKey: openaiApiKey || undefined,
+    openaiApiKey: process.env.OPENAI_API_KEY
+      ? undefined
+      : openaiApiKey || undefined,
     anthropicApiKey: anthropicApiKey || undefined,
     ollamaBaseUrl,
     treasuryPolicy,
