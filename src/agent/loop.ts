@@ -956,6 +956,14 @@ async function getFinancialState(
   db?: AutomatonDatabase,
   chainType?: string,
 ): Promise<FinancialState> {
+  if (process.env.AUTOMATON_STANDALONE === "true") {
+    return {
+      creditsCents: 100_000,
+      usdcBalance: 0,
+      lastChecked: new Date().toISOString(),
+    };
+  }
+
   let creditsCents = _lastKnownCredits;
   let usdcBalance = _lastKnownUsdc;
 
