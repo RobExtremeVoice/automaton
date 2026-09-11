@@ -230,6 +230,10 @@ export async function runAgentLoop(
         config: {
           ...config,
           spawnAgent: async (task: any) => {
+            if (process.env.AUTOMATON_STANDALONE === "true") {
+              return initializedWorkerPool.spawn(task);
+            }
+
             // Try Conway sandbox spawn first (production)
             try {
               const { generateGenesisConfig } = await import("../replication/genesis.js");
