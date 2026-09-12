@@ -49,6 +49,12 @@ const GENERAL_WRAPPED_TOOL_ALLOWLIST = new Set([
   "ghl_search_opportunities",
   "ghl_upsert_opportunity",
   "ghl_send_email",
+  "stripe_create_product",
+  "stripe_create_price",
+  "stripe_create_payment_link",
+  "stripe_get_payment_status",
+  "stripe_list_recent_payments",
+  "stripe_deactivate_payment_link",
 ]);
 const GENERAL_SPEC_ALIAS_TARGETS = {
   web_fetch: "x402_fetch",
