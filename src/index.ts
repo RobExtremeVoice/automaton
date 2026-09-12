@@ -36,6 +36,7 @@ import { prettySink } from "./observability/pretty-sink.js";
 import { bootstrapTopup } from "./conway/topup.js";
 import { randomUUID } from "crypto";
 import { startStripeWebhookServer } from "./integrations/stripe-webhook.js";
+import { syncStripeEventToGoHighLevel } from "./integrations/stripe-ghl-sync.js";
 import { keccak256, toHex } from "viem";
 
 const logger = createLogger("main");
@@ -238,6 +239,15 @@ async function run(): Promise<void> {
           });
         },
         onEvent: async (event) => {
+          const ghlSync = await syncStripeEventToGoHighLevel(event, { db });
+          if (ghlSync.outcome === "synced") {
+            logger.info(
+              "Stripe payment synced to GoHighLevel opportunity " +
+              (ghlSync.opportunityId ?? "unknown"),
+            );
+          } else if (event.type === "checkout.session.completed") {
+            logger.info("Stripe to GoHighLevel sync skipped: " + ghlSync.reason);
+          }
           insertWakeEvent(db.raw, "stripe", "Verified Stripe event: " + event.type);
           logger.info("Verified Stripe webhook: " + event.type + " (" + event.id + ")");
         },
