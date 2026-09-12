@@ -109,10 +109,45 @@ function claimDailyCreation(context: ToolContext): { used: number; limit: number
   });
 }
 
+function releaseDailyCreation(context: ToolContext): void {
+  const key = "ghl.opportunities.created." +
+    new Date().toISOString().slice(0, 10);
+  context.db.runTransaction(() => {
+    const current = Number.parseInt(context.db.getKV(key) ?? "0", 10) || 0;
+    context.db.setKV(key, String(Math.max(0, current - 1)));
+  });
+}
+
 function opportunitiesFrom(value: Record<string, unknown>): Opportunity[] {
   return Array.isArray(value.opportunities)
     ? value.opportunities as Opportunity[]
     : [];
+}
+
+async function findOpenOpportunity(
+  contactId: string,
+  locationId: string,
+  pipelineId: string,
+  attempts = 1,
+): Promise<Opportunity | undefined> {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const search = await request("GET", "/opportunities/search", undefined, {
+      location_id: locationId,
+      pipeline_id: pipelineId,
+      contact_id: contactId,
+      limit: "20",
+    });
+    const existing = opportunitiesFrom(search).find((item) =>
+      item.contactId === contactId &&
+      item.pipelineId === pipelineId &&
+      item.status === "open"
+    );
+    if (existing) return existing;
+    if (attempt < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  return undefined;
 }
 
 export function createGoHighLevelOpportunityTools(): AutomatonTool[] {
@@ -180,16 +215,10 @@ export function createGoHighLevelOpportunityTools(): AutomatonTool[] {
           throw new Error("monetaryValue must be a non-negative number");
         }
 
-        const search = await request("GET", "/opportunities/search", undefined, {
-          location_id: locationId,
-          pipeline_id: pipelineId,
-          contact_id: contactId,
-          limit: "20",
-        });
-        const existing = opportunitiesFrom(search).find((item) =>
-          item.contactId === contactId &&
-          item.pipelineId === pipelineId &&
-          item.status === "open"
+        const existing = await findOpenOpportunity(
+          contactId,
+          locationId,
+          pipelineId,
         );
         const payload: Record<string, unknown> = {
           name,
@@ -213,18 +242,43 @@ export function createGoHighLevelOpportunityTools(): AutomatonTool[] {
         }
 
         const quota = claimDailyCreation(context);
-        const created = await request("POST", "/opportunities/", {
-          ...payload,
-          locationId,
-          contactId,
-        });
-        const opportunity = (created.opportunity ?? created) as Opportunity;
-        return JSON.stringify({
-          operation: "created",
-          opportunityId: opportunity.id ?? null,
-          dailyCreationsUsed: quota.used,
-          dailyCreationLimit: quota.limit,
-        });
+        try {
+          const created = await request("POST", "/opportunities/", {
+            ...payload,
+            locationId,
+            contactId,
+          });
+          const opportunity = (created.opportunity ?? created) as Opportunity;
+          return JSON.stringify({
+            operation: "created",
+            opportunityId: opportunity.id ?? null,
+            dailyCreationsUsed: quota.used,
+            dailyCreationLimit: quota.limit,
+          });
+        } catch (error) {
+          releaseDailyCreation(context);
+          const message = error instanceof Error ? error.message : String(error);
+          if (!message.toLowerCase().includes("duplicate opportunity")) {
+            throw error;
+          }
+          const duplicate = await findOpenOpportunity(
+            contactId,
+            locationId,
+            pipelineId,
+            5,
+          );
+          if (!duplicate?.id) throw error;
+          const updated = await request(
+            "PUT",
+            "/opportunities/" + encodeURIComponent(duplicate.id),
+            payload,
+          );
+          const opportunity = (updated.opportunity ?? updated) as Opportunity;
+          return JSON.stringify({
+            operation: "updated_after_duplicate",
+            opportunityId: opportunity.id ?? duplicate.id,
+          });
+        }
       },
     },
   ];
