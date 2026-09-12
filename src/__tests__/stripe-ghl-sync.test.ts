@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { stripeEventToOpportunity } from "../integrations/stripe-ghl-sync.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  hydrateStripeWebhookEvent,
+  stripeEventToOpportunity,
+} from "../integrations/stripe-ghl-sync.js";
 import type { StripeWebhookEvent } from "../integrations/stripe-webhook.js";
 
 function event(
@@ -13,6 +16,11 @@ function event(
     data: { object },
   };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete process.env.STRIPE_RESTRICTED_KEY;
+});
 
 describe("Stripe to GoHighLevel opportunity mapping", () => {
   it("maps a paid checkout with a GHL contact ID", () => {
@@ -30,6 +38,48 @@ describe("Stripe to GoHighLevel opportunity mapping", () => {
       status: "won",
       monetaryValue: 125,
     });
+  });
+
+  it("hydrates a thin checkout event from Stripe", async () => {
+    process.env.STRIPE_RESTRICTED_KEY = "rk_test_phase3";
+    const fullEvent = event("checkout.session.completed", {
+      payment_status: "paid",
+      amount_total: 100,
+      metadata: { ghlContactId: "contact_123" },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(fullEvent), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ));
+
+    const hydrated = await hydrateStripeWebhookEvent(
+      event("checkout.session.completed", { id: "cs_test_phase3" }),
+    );
+
+    expect(hydrated).toEqual(fullEvent);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.stripe.com/v1/events/evt_phase3",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer rk_test_phase3",
+        }),
+      }),
+    );
+  });
+
+  it("does not fetch an already complete checkout event", async () => {
+    const fullEvent = event("checkout.session.completed", {
+      payment_status: "paid",
+      amount_total: 100,
+      metadata: { ghlContactId: "contact_123" },
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await hydrateStripeWebhookEvent(fullEvent)).toBe(fullEvent);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("uses a stable non-PII name when no name is supplied", () => {
