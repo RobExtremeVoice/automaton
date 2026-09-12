@@ -87,6 +87,21 @@ function claimDailySlot(context: ToolContext): { used: number; limit: number } {
     return { used, limit };
   });
 }
+function releaseDailySlot(context: ToolContext): void {
+  const key = "ghl.contacts.created." +
+    new Date().toISOString().slice(0, 10);
+
+  context.db.runTransaction(() => {
+    const current =
+      Number.parseInt(context.db.getKV(key) ?? "0", 10) || 0;
+
+    context.db.setKV(
+      key,
+      String(Math.max(0, current - 1)),
+    );
+  });
+}
+
 
 export function createGoHighLevelWriteTools(): AutomatonTool[] {
   return [{
@@ -127,18 +142,33 @@ export function createGoHighLevelWriteTools(): AutomatonTool[] {
       if (phone) payload.phone = phone;
 
       const quota = claimDailySlot(context);
-      const upserted = await request(
-        "POST",
-        "/contacts/upsert",
-        payload,
-      );
+      let upserted: Record<string, unknown>;
+
+      try {
+        upserted = await request(
+          "POST",
+          "/contacts/upsert",
+          payload,
+        );
+      } catch (error) {
+        releaseDailySlot(context);
+        throw error;
+      }
+
       const contact = (upserted.contact ?? upserted) as Contact;
       const created = upserted.new === true;
+
+      if (!created) {
+        releaseDailySlot(context);
+      }
+
       return JSON.stringify({
         operation: created ? "created" : "upserted",
         contactId: contact.id ?? null,
-        dailyUpsertsUsed: quota.used,
-        dailyUpsertLimit: quota.limit,
+        dailyCreationsUsed: created
+          ? quota.used
+          : Math.max(0, quota.used - 1),
+        dailyCreationLimit: quota.limit,
       });
     },
   }];
