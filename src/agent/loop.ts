@@ -211,7 +211,7 @@ export async function runAgentLoop(
             costCents,
             latencyMs: response.metadata.latencyMs,
             tier: response.metadata.tier,
-            taskType: "worker_turn",
+            taskType: "agent_turn",
             cacheHit: false,
           });
 
