@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "crypto";
 import type { Server } from "http";
-import { startStripeWebhookServer, verifyStripeSignature } from "../integrations/stripe-webhook.js";
+import { isStoredStripeEvent, startStripeWebhookServer, verifyStripeSignature } from "../integrations/stripe-webhook.js";
 
 const secret = "whsec_test_secret";
 const body = Buffer.from(JSON.stringify({
@@ -26,6 +26,13 @@ describe("Stripe webhook", () => {
     await Promise.all(servers.splice(0).map((server) =>
       new Promise<void>((resolve) => server.close(() => resolve()))
     ));
+  });
+
+  it("treats undefined and null KV results as unseen events", () => {
+    expect(isStoredStripeEvent(undefined)).toBe(false);
+    expect(isStoredStripeEvent(null)).toBe(false);
+    expect(isStoredStripeEvent("")).toBe(true);
+    expect(isStoredStripeEvent("1789237320")).toBe(true);
   });
 
   it("validates signatures and rejects stale timestamps", () => {
