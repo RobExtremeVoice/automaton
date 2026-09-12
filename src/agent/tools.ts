@@ -22,6 +22,7 @@ import type {
 import type { PolicyEngine } from "./policy-engine.js";
 import { sanitizeToolResult, sanitizeInput } from "./injection-defense.js";
 import { createGoHighLevelTools } from "../integrations/gohighlevel.js";
+import { createGoHighLevelWriteTools } from "../integrations/gohighlevel-write.js";
 import { createLogger } from "../observability/logger.js";
 
 const logger = createLogger("tools");
@@ -58,6 +59,7 @@ const EXTERNAL_SOURCE_TOOLS = new Set([
   "check_social_inbox",
   "ghl_get_location",
   "ghl_search_contacts",
+  "ghl_upsert_contact",
 ]);
 
 // ─── Self-Preservation Guard ───────────────────────────────────
@@ -114,6 +116,7 @@ function isForbiddenCommand(command: string, sandboxId: string): string | null {
 export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
   return [
     ...createGoHighLevelTools(),
+    ...createGoHighLevelWriteTools(),
     // ── VM/Sandbox Tools ──
     {
       name: "exec",

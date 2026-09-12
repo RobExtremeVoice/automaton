@@ -884,6 +884,7 @@ export async function runAgentLoop(
         "register_domain", "register_erc8004", "give_feedback",
         "update_genesis_prompt", "update_agent_card", "modify_heartbeat",
         "expose_port", "remove_port", "x402_fetch", "manage_dns",
+        "ghl_upsert_contact",
         "distress_signal", "prune_dead_children", "sleep",
         "update_soul", "remember_fact", "set_goal", "complete_goal",
         "save_procedure", "note_about_agent", "forget",
