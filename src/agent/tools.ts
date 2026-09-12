@@ -25,6 +25,7 @@ import { createGoHighLevelTools } from "../integrations/gohighlevel.js";
 import { createGoHighLevelWriteTools } from "../integrations/gohighlevel-write.js";
 import { createGoHighLevelOpportunityTools } from "../integrations/gohighlevel-opportunities.js";
 import { createGoHighLevelEmailTools } from "../integrations/gohighlevel-email.js";
+import { createStripeRevenueTools } from "../integrations/stripe-revenue.js";
 import { createLogger } from "../observability/logger.js";
 
 const logger = createLogger("tools");
@@ -65,6 +66,12 @@ const EXTERNAL_SOURCE_TOOLS = new Set([
   "ghl_search_opportunities",
   "ghl_upsert_opportunity",
   "ghl_send_email",
+  "stripe_create_product",
+  "stripe_create_price",
+  "stripe_create_payment_link",
+  "stripe_get_payment_status",
+  "stripe_list_recent_payments",
+  "stripe_deactivate_payment_link",
 ]);
 
 // ─── Self-Preservation Guard ───────────────────────────────────
@@ -124,6 +131,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
     ...createGoHighLevelWriteTools(),
     ...createGoHighLevelOpportunityTools(),
     ...createGoHighLevelEmailTools(),
+    ...createStripeRevenueTools(),
     // ── VM/Sandbox Tools ──
     {
       name: "exec",
