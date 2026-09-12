@@ -101,7 +101,7 @@ export async function runAgentLoop(
     "delete_sandbox", "spawn_child", "start_child", "fund_child",
     "register_domain", "manage_dns", "expose_port", "remove_port",
     "heartbeat_ping", "distress_signal", "list_sandboxes", "list_models",
-    "search_domains", "send_message",
+    "search_domains", "send_message", "check_usdc_balance",
   ]);
   const builtinTools = createBuiltinTools(identity.sandboxId).filter(
     (tool) => process.env.AUTOMATON_STANDALONE !== "true" || !conwayOnlyTools.has(tool.name),
@@ -420,10 +420,22 @@ export async function runAgentLoop(
 
   // ─── The Loop ──────────────────────────────────────────────
 
-  const MAX_IDLE_TURNS = 10; // Force sleep after N turns with no real work
+  const standaloneMode = process.env.AUTOMATON_STANDALONE === "true";
+  const MAX_IDLE_TURNS = standaloneMode ? 2 : 10;
+  const configuredIdleSleepMs = Number.parseInt(
+    process.env.AUTOMATON_IDLE_SLEEP_MS ?? "",
+    10,
+  );
+  const idleSleepMs = Number.isFinite(configuredIdleSleepMs) &&
+      configuredIdleSleepMs >= 60_000
+    ? Math.min(configuredIdleSleepMs, 86_400_000)
+    : standaloneMode ? 900_000 : 60_000;
   let idleTurnCount = 0;
 
-  const maxCycleTurns = config.maxTurnsPerCycle ?? 25;
+  const configuredMaxCycleTurns = config.maxTurnsPerCycle ?? 25;
+  const maxCycleTurns = standaloneMode
+    ? Math.min(configuredMaxCycleTurns, 6)
+    : configuredMaxCycleTurns;
   let cycleTurnCount = 0;
 
   let pendingInput: { content: string; source: string } | undefined = {
@@ -598,7 +610,7 @@ export async function runAgentLoop(
             config,
             "[ORCHESTRATOR] All delegated work is active and no self-assigned parent task remains. Sleeping to avoid idle loop.",
           );
-          db.setKV("sleep_until", new Date(Date.now() + 60_000).toISOString());
+          db.setKV("sleep_until", new Date(Date.now() + idleSleepMs).toISOString());
           db.setAgentState("sleeping");
           onStateChange?.("sleeping");
           running = false;
@@ -936,7 +948,7 @@ export async function runAgentLoop(
         log(config, "[IDLE] No pending inputs. Entering brief sleep.");
         db.setKV(
           "sleep_until",
-          new Date(Date.now() + 60_000).toISOString(),
+          new Date(Date.now() + idleSleepMs).toISOString(),
         );
         db.setAgentState("sleeping");
         onStateChange?.("sleeping");
