@@ -35,7 +35,7 @@ import { createLogger, setGlobalLogLevel, StructuredLogger } from "./observabili
 import { prettySink } from "./observability/pretty-sink.js";
 import { bootstrapTopup } from "./conway/topup.js";
 import { randomUUID } from "crypto";
-import { startStripeWebhookServer } from "./integrations/stripe-webhook.js";
+import { isStoredStripeEvent, startStripeWebhookServer } from "./integrations/stripe-webhook.js";
 import { syncStripeEventToGoHighLevel } from "./integrations/stripe-ghl-sync.js";
 import { keccak256, toHex } from "viem";
 
@@ -226,7 +226,7 @@ async function run(): Promise<void> {
         port: Number.parseInt(process.env.STRIPE_WEBHOOK_PORT ?? "8787", 10),
         expectedMode: process.env.STRIPE_MODE === "live" ? "live" : "test",
         isProcessed: (eventId) =>
-          db.getKV("stripe.webhook.processed." + eventId) !== null,
+          isStoredStripeEvent(db.getKV("stripe.webhook.processed." + eventId)),
         markProcessed: (event) => {
           db.runTransaction(() => {
             db.setKV("stripe.webhook.processed." + event.id, String(event.created ?? Date.now()));
