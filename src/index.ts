@@ -35,6 +35,7 @@ import { createLogger, setGlobalLogLevel, StructuredLogger } from "./observabili
 import { prettySink } from "./observability/pretty-sink.js";
 import { bootstrapTopup } from "./conway/topup.js";
 import { randomUUID } from "crypto";
+import { startStripeWebhookServer } from "./integrations/stripe-webhook.js";
 import { keccak256, toHex } from "viem";
 
 const logger = createLogger("main");
@@ -151,6 +152,40 @@ async function showStatus(): Promise<void> {
 
   const dbPath = resolvePath(config.dbPath);
   const db = createDatabase(dbPath);
+
+  // Stripe webhook receiver is local-only; expose it through the authenticated
+  // Cloudflare tunnel, never by publishing the container port directly.
+  const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  const stripeWebhook = stripeWebhookSecret
+    ? startStripeWebhookServer({
+        secret: stripeWebhookSecret,
+        host: process.env.STRIPE_WEBHOOK_HOST?.trim() || "127.0.0.1",
+        port: Number.parseInt(process.env.STRIPE_WEBHOOK_PORT ?? "8787", 10),
+        expectedMode: process.env.STRIPE_MODE === "live" ? "live" : "test",
+        isProcessed: (eventId) =>
+          db.getKV("stripe.webhook.processed." + eventId) !== null,
+        markProcessed: (event) => {
+          db.runTransaction(() => {
+            db.setKV("stripe.webhook.processed." + event.id, String(event.created ?? Date.now()));
+            db.setKV("stripe.webhook.last_event", JSON.stringify({
+              id: event.id,
+              type: event.type,
+              created: event.created ?? null,
+              livemode: event.livemode ?? false,
+            }));
+          });
+        },
+        onEvent: async (event) => {
+          insertWakeEvent(db.raw, "stripe", "Verified Stripe event: " + event.type);
+          logger.info("Verified Stripe webhook: " + event.type + " (" + event.id + ")");
+        },
+        log: (message) => logger.warn(message),
+      })
+    : undefined;
+  if (stripeWebhook) {
+    logger.info("Stripe webhook receiver listening on local port " +
+      (process.env.STRIPE_WEBHOOK_PORT ?? "8787"));
+  }
 
   const state = db.getAgentState();
   const turnCount = db.getTurnCount();
@@ -398,6 +433,7 @@ async function run(): Promise<void> {
   const shutdown = () => {
     logger.info(`[${new Date().toISOString()}] Shutting down...`);
     heartbeat.stop();
+    stripeWebhook?.close();
     db.setAgentState("sleeping");
     db.close();
     process.exit(0);
