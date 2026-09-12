@@ -1010,8 +1010,12 @@ async function getFinancialState(
   chainType?: string,
 ): Promise<FinancialState> {
   if (process.env.AUTOMATON_STANDALONE === "true") {
+    const standaloneCreditsCents = Math.max(
+      0,
+      Number.parseInt(process.env.AUTOMATON_STANDALONE_CREDITS_CENTS ?? "100000", 10) || 0,
+    );
     return {
-      creditsCents: 100_000,
+      creditsCents: standaloneCreditsCents,
       usdcBalance: 0,
       lastChecked: new Date().toISOString(),
     };

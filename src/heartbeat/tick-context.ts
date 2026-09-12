@@ -48,7 +48,13 @@ export async function buildTickContext(
   const startedAt = new Date();
 
   // Fetch balances ONCE
-  let creditBalance = process.env.AUTOMATON_STANDALONE === "true" ? 100_000 : 0;
+  const standaloneCreditsCents = Math.max(
+    0,
+    Number.parseInt(process.env.AUTOMATON_STANDALONE_CREDITS_CENTS ?? "100000", 10) || 0,
+  );
+  let creditBalance = process.env.AUTOMATON_STANDALONE === "true"
+    ? standaloneCreditsCents
+    : 0;
   if (process.env.AUTOMATON_STANDALONE !== "true") {
     try {
       creditBalance = await conway.getCreditsBalance();
