@@ -240,6 +240,19 @@ async function run(): Promise<void> {
         },
         onEvent: async (event) => {
           const ghlSync = await syncStripeEventToGoHighLevel(event, { db });
+          db.setKV(
+            "stripe.webhook.ghl_sync." + event.id,
+            JSON.stringify({
+              outcome: ghlSync.outcome,
+              ...(ghlSync.outcome === "synced"
+                ? {
+                    opportunityId: ghlSync.opportunityId,
+                    operation: ghlSync.operation,
+                  }
+                : { reason: ghlSync.reason }),
+              recordedAt: new Date().toISOString(),
+            }),
+          );
           if (ghlSync.outcome === "synced") {
             logger.info(
               "Stripe payment synced to GoHighLevel opportunity " +
