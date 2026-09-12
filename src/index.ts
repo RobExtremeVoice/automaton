@@ -190,6 +190,7 @@ async function run(): Promise<void> {
   logger.info(`[${new Date().toISOString()}] Conway Automaton v${VERSION} starting...`);
 
   const standalone = process.env.AUTOMATON_STANDALONE === "true";
+  const webhookOnly = process.env.AUTOMATON_WEBHOOK_ONLY === "true";
 
   // Load config — first run triggers interactive setup wizard
   let config = loadConfig();
@@ -450,8 +451,12 @@ async function run(): Promise<void> {
     },
   });
 
-  heartbeat.start();
-  logger.info(`[${new Date().toISOString()}] Heartbeat daemon started.`);
+  if (!webhookOnly) {
+    heartbeat.start();
+    logger.info(`[${new Date().toISOString()}] Heartbeat daemon started.`);
+  } else {
+    logger.info(`[${new Date().toISOString()}] Webhook-only mode enabled.`);
+  }
 
   // Handle graceful shutdown
   const shutdown = () => {
@@ -465,6 +470,12 @@ async function run(): Promise<void> {
 
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+
+  if (webhookOnly) {
+    logger.info(`[${new Date().toISOString()}] Agent loop disabled; waiting for webhooks.`);
+    await new Promise<void>(() => {});
+    return;
+  }
 
   // ─── Main Run Loop ──────────────────────────────────────────
   // The automaton alternates between running and sleeping.
