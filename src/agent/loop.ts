@@ -197,6 +197,7 @@ export async function runAgentLoop(
       const initializedWorkerPool = new LocalWorkerPool({
         db: db.raw,
         inference: workerInference,
+        maxTurns: process.env.AUTOMATON_STANDALONE === "true" ? 10 : undefined,
         conway,
         harnessRegistry,
         identity,
@@ -560,11 +561,11 @@ export async function runAgentLoop(
 
         if (
           orchestratorTick.phase === "executing" &&
-          orchestratorTick.tasksAssigned === 0 &&
+          !hasSelfAssignedParentTask &&
+          (localWorkersActive > 0 || (orchestratorTick.tasksAssigned === 0 &&
           orchestratorTick.tasksCompleted === 0 &&
           orchestratorTick.tasksFailed === 0 &&
-          !hasSelfAssignedParentTask &&
-          (orchestratorTick.agentsActive > 0 || localWorkersActive > 0)
+          orchestratorTick.agentsActive > 0))
         ) {
           log(
             config,
