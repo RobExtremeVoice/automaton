@@ -88,7 +88,7 @@ describe("Stripe revenue tools", () => {
   });
 
   it("creates a product with deterministic idempotency", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response({
+    const fetchMock = vi.fn().mockImplementation(async () => response({
       id: "prod_123", name: "Offer", active: true, livemode: false,
     }));
     vi.stubGlobal("fetch", fetchMock);
@@ -177,7 +177,7 @@ describe("Stripe revenue tools", () => {
 
   it("sanitizes Stripe errors without leaking the key", async () => {
     const secret = process.env.STRIPE_RESTRICTED_KEY!;
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => response({
       error: { message: "Rejected credential " + secret },
     }, 401)));
     await expect(tool("stripe_create_product").execute(
