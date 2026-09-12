@@ -18,6 +18,12 @@ export type StripeWebhookEvent = {
   data: { object: Record<string, unknown> };
 };
 
+export function isStoredStripeEvent(
+  value: string | null | undefined,
+): boolean {
+  return value !== null && value !== undefined;
+}
+
 export type StripeWebhookOptions = {
   secret: string;
   port: number;
