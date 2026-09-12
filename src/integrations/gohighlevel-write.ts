@@ -126,35 +126,19 @@ export function createGoHighLevelWriteTools(): AutomatonTool[] {
       if (email) payload.email = email;
       if (phone) payload.phone = phone;
 
-      const searchTerm = email ?? phone as string;
-      const search = await request("GET", "/contacts/", undefined, {
-        locationId,
-        query: searchTerm,
-        limit: "20",
-      });
-      const contacts = Array.isArray(search.contacts) ? search.contacts as Contact[] : [];
-      const existing = exactMatch(contacts, email, phone);
-
-      if (existing?.id) {
-        const updatePayload = { ...payload };
-        delete updatePayload.locationId;
-        const updated = await request(
-          "PUT",
-          "/contacts/" + encodeURIComponent(existing.id),
-          updatePayload,
-        );
-        const contact = (updated.contact ?? updated) as Contact;
-        return JSON.stringify({ operation: "updated", contactId: contact.id ?? existing.id });
-      }
-
       const quota = claimDailySlot(context);
-      const created = await request("POST", "/contacts/", payload);
-      const contact = (created.contact ?? created) as Contact;
+      const upserted = await request(
+        "POST",
+        "/contacts/upsert",
+        payload,
+      );
+      const contact = (upserted.contact ?? upserted) as Contact;
+      const created = upserted.new === true;
       return JSON.stringify({
-        operation: "created",
+        operation: created ? "created" : "upserted",
         contactId: contact.id ?? null,
-        dailyCreationsUsed: quota.used,
-        dailyCreationLimit: quota.limit,
+        dailyUpsertsUsed: quota.used,
+        dailyUpsertLimit: quota.limit,
       });
     },
   }];
