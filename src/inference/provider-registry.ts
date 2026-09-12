@@ -461,6 +461,17 @@ export class ProviderRegistry {
       return false;
     }
 
+    // Never select a remote provider without its credential. Previously the
+    // default fast tier selected Groq first even when GROQ_API_KEY was absent,
+    // constructing a client with a placeholder key and returning a misleading
+    // 401 instead of falling back to the configured OpenAI provider.
+    if (
+      provider.id !== "local" &&
+      !(process.env[provider.apiKeyEnvVar]?.trim())
+    ) {
+      return false;
+    }
+
     const disabled = this.disablements.get(provider.id);
     if (!disabled) {
       return true;
