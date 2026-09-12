@@ -886,6 +886,7 @@ export async function runAgentLoop(
         "expose_port", "remove_port", "x402_fetch", "manage_dns",
         "ghl_upsert_contact",
         "ghl_upsert_opportunity",
+        "ghl_send_email",
         "distress_signal", "prune_dead_children", "sleep",
         "update_soul", "remember_fact", "set_goal", "complete_goal",
         "save_procedure", "note_about_agent", "forget",

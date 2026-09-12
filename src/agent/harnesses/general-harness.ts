@@ -48,6 +48,7 @@ const GENERAL_WRAPPED_TOOL_ALLOWLIST = new Set([
   "ghl_upsert_contact",
   "ghl_search_opportunities",
   "ghl_upsert_opportunity",
+  "ghl_send_email",
 ]);
 const GENERAL_SPEC_ALIAS_TARGETS = {
   web_fetch: "x402_fetch",
