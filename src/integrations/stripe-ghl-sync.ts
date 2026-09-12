@@ -27,6 +27,82 @@ function metadataFrom(value: unknown): Record<string, string> {
   return result;
 }
 
+function hasCompleteCheckoutObject(event: StripeWebhookEvent): boolean {
+  const object = event.data.object;
+  return (
+    typeof object.payment_status === "string" &&
+    object.metadata !== undefined &&
+    object.amount_total !== undefined
+  );
+}
+
+export async function hydrateStripeWebhookEvent(
+  event: StripeWebhookEvent,
+): Promise<StripeWebhookEvent> {
+  if (
+    event.type !== "checkout.session.completed" ||
+    hasCompleteCheckoutObject(event)
+  ) {
+    return event;
+  }
+
+  const key = process.env.STRIPE_RESTRICTED_KEY?.trim();
+  if (!key || (!key.startsWith("rk_test_") && !key.startsWith("rk_live_"))) {
+    throw new Error("STRIPE_RESTRICTED_KEY is unavailable for Stripe event hydration");
+  }
+
+  const response = await fetch(
+    "https://api.stripe.com/v1/events/" + encodeURIComponent(event.id),
+    {
+      headers: {
+        Authorization: "Bearer " + key,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+
+  const raw = await response.text();
+  let value: unknown;
+  try {
+    value = raw ? JSON.parse(raw) : {};
+  } catch {
+    value = {};
+  }
+
+  if (!response.ok) {
+    const record = value && typeof value === "object"
+      ? value as Record<string, unknown>
+      : {};
+    const stripeError = record.error && typeof record.error === "object"
+      ? record.error as Record<string, unknown>
+      : {};
+    const message = String(stripeError.message ?? record.message ?? "unknown error")
+      .replaceAll(key, "[redacted]")
+      .slice(0, 500);
+    throw new Error(
+      "Stripe event hydration failed (" + response.status + "): " + message,
+    );
+  }
+
+  const hydrated = value as Partial<StripeWebhookEvent>;
+  if (
+    hydrated.id !== event.id ||
+    hydrated.type !== event.type ||
+    !hydrated.data ||
+    !hydrated.data.object ||
+    typeof hydrated.data.object !== "object"
+  ) {
+    throw new Error("Stripe event hydration returned an invalid event");
+  }
+
+  if (Boolean(hydrated.livemode) !== Boolean(event.livemode)) {
+    throw new Error("Stripe event hydration mode mismatch");
+  }
+
+  return hydrated as StripeWebhookEvent;
+}
+
 export function stripeEventToOpportunity(
   event: StripeWebhookEvent,
 ): StripeGhlOpportunityInput | null {
@@ -68,11 +144,13 @@ export async function syncStripeEventToGoHighLevel(
     return { outcome: "skipped", reason: "unsupported_event" };
   }
 
-  if (event.data.object.payment_status !== "paid") {
+  const resolvedEvent = await hydrateStripeWebhookEvent(event);
+
+  if (resolvedEvent.data.object.payment_status !== "paid") {
     return { outcome: "skipped", reason: "payment_not_paid" };
   }
 
-  const input = stripeEventToOpportunity(event);
+  const input = stripeEventToOpportunity(resolvedEvent);
   if (!input) {
     return { outcome: "skipped", reason: "missing_or_invalid_ghl_contact_id" };
   }
