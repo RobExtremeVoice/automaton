@@ -190,7 +190,34 @@ export async function runAgentLoop(
 
       // Adapter: local workers use the unified inference path so planner-backed
       // harnesses can preserve tier + responseFormat contracts.
-      const workerInference = createWorkerInferenceBridge(unifiedInference);
+      const workerInference = createWorkerInferenceBridge({
+        chat: async (params) => {
+          const dailyLimitCents = config.treasuryPolicy?.maxInferenceDailyCents ?? 0;
+          const spentTodayCents = budgetTracker.getDailyCost();
+          if (dailyLimitCents > 0 && spentTodayCents >= dailyLimitCents) {
+            throw new Error(`Worker daily inference budget exhausted: ${spentTodayCents}c / ${dailyLimitCents}c`);
+          }
+
+          const response = await unifiedInference.chat(params);
+          const costCents = Math.max(1, Math.ceil(response.cost.totalCostCredits));
+
+          budgetTracker.recordCost({
+            sessionId: db.getKV("session_id") || "default",
+            turnId: null,
+            model: response.metadata.modelId,
+            provider: response.metadata.providerId,
+            inputTokens: response.usage.inputTokens,
+            outputTokens: response.usage.outputTokens,
+            costCents,
+            latencyMs: response.metadata.latencyMs,
+            tier: response.metadata.tier,
+            taskType: "worker_turn",
+            cacheHit: false,
+          });
+
+          return response;
+        },
+      });
 
       // Local worker pool: runs inference-driven agents in-process
       // as async tasks. Falls back from Conway sandbox spawning.
