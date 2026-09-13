@@ -273,11 +273,16 @@ When calling task_done, provide:
             summary: { type: "string", description: "Summary of what was accomplished or why the task failed" },
             success: { type: "boolean", description: "Whether the task was completed successfully (default: true)" },
           },
-          required: ["summary"],
+          required: ["summary", "success"],
         },
         execute: async (args) => {
           const summary = args.summary as string;
-          const success = args.success !== false;
+          const reportedSuccess = args.success === true;
+          const failureSummary =
+            /^(failed|failure|unable|could not|cannot|can't|blocked|error)\b/i.test(
+              summary.trim(),
+            );
+          const success = reportedSuccess && !failureSummary;
           return `TASK_COMPLETE:${success ? "SUCCESS" : "FAILURE"}:${summary}`;
         },
       },

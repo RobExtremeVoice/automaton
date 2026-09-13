@@ -119,6 +119,37 @@ describe("agent/GeneralHarness", () => {
     appDb.close();
   });
 
+  it("rejects contradictory or incomplete successful task completion", async () => {
+    const { harness, appDb } = await createHarness();
+    const taskDone = harness.getToolDefs().find(
+      (tool) => tool.name === "task_done",
+    );
+
+    expect(taskDone).toBeDefined();
+    expect(taskDone?.parameters.required).toEqual([
+      "summary",
+      "success",
+    ]);
+
+    const contradictory = await taskDone!.execute({
+      summary: "Failed to create Stripe product due to insufficient permissions.",
+      success: true,
+    });
+
+    const missingSuccess = await taskDone!.execute({
+      summary: "Completed without an explicit success value.",
+    });
+
+    expect(contradictory).toContain(
+      "TASK_COMPLETE:FAILURE:",
+    );
+    expect(missingSuccess).toContain(
+      "TASK_COMPLETE:FAILURE:",
+    );
+
+    appDb.close();
+  });
+
   it("routes the web_fetch SPEC alias through the current x402_fetch surface", async () => {
     const { harness, appDb } = await createHarness();
     const aliasTool = harness.getToolDefs().find((tool) => tool.name === "web_fetch");
