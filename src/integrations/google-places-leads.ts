@@ -137,24 +137,15 @@ function recordNewPlaces(
     const accepted: Place[] = [];
 
     for (const place of places) {
-      if (!place.id || used >= limit) {
+      if (!place.id) {
         continue;
       }
 
       const placeKey =
         "lead.discovery.google.place." + place.id;
 
-      if (context.db.getKV(placeKey)) {
-        continue;
-      }
-
-      context.db.setKV(
-        placeKey,
-        new Date().toISOString(),
-      );
-
-      accepted.push(place);
-
+      // Authorize websites returned by Google Places even when the
+      // place was discovered by an older version or is a duplicate.
       if (place.websiteUri) {
         try {
           const website =
@@ -195,6 +186,19 @@ function recordNewPlaces(
         }
       }
 
+      if (
+        context.db.getKV(placeKey) ||
+        used >= limit
+      ) {
+        continue;
+      }
+
+      context.db.setKV(
+        placeKey,
+        new Date().toISOString(),
+      );
+
+      accepted.push(place);
       used += 1;
     }
 

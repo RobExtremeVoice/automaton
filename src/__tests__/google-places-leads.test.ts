@@ -206,6 +206,56 @@ describe("Google Places lead discovery", () => {
     expect(second.leadsDiscoveredToday).toBe(1);
   });
 
+  it("authorizes the website of a previously discovered place", async () => {
+    const context = createContext();
+
+    context.db.setKV(
+      "lead.discovery.google.place.legacy-place",
+      "2026-09-12T00:00:00.000Z",
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response({
+          places: [{
+            id: "legacy-place",
+            displayName: {
+              text: "Legacy Company",
+            },
+            websiteUri:
+              "https://www.legacy-company.example/",
+          }],
+        }),
+      ),
+    );
+
+    const result = JSON.parse(
+      await tool().execute(
+        {
+          query: "legacy company",
+          location: "Boca Raton",
+        },
+        context,
+      ),
+    );
+
+    expect(result.returned).toBe(0);
+    expect(result.leadsDiscoveredToday).toBe(0);
+    expect(
+      context.db.getKV(
+        "lead.discovery.website.host." +
+          "legacy-company.example",
+      ),
+    ).toBe("legacy-place");
+    expect(
+      context.db.getKV(
+        "lead.discovery.website.host." +
+          "www.legacy-company.example",
+      ),
+    ).toBe("legacy-place");
+  });
+
   it("enforces daily search and lead limits", async () => {
     process.env
       .GOOGLE_PLACES_MAX_SEARCHES_DAILY = "1";
