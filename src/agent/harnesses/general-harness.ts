@@ -44,6 +44,7 @@ const GENERAL_WRAPPED_TOOL_ALLOWLIST = new Set([
   "forget",
   "x402_fetch",
   "lead_discover_businesses",
+  "lead_fetch_public_website",
   "ghl_get_location",
   "ghl_search_contacts",
   "ghl_upsert_contact",

@@ -154,6 +154,47 @@ function recordNewPlaces(
       );
 
       accepted.push(place);
+
+      if (place.websiteUri) {
+        try {
+          const website =
+            new URL(place.websiteUri);
+          const host =
+            website.hostname
+              .trim()
+              .toLowerCase()
+              .replace(/\.$/, "");
+          const comparable =
+            host.startsWith("www.")
+              ? host.slice(4)
+              : host;
+
+          if (
+            (website.protocol === "https:" ||
+              website.protocol === "http:") &&
+            host
+          ) {
+            context.db.setKV(
+              "lead.discovery.website.host." +
+                host,
+              place.id,
+            );
+            context.db.setKV(
+              "lead.discovery.website.host." +
+                comparable,
+              place.id,
+            );
+            context.db.setKV(
+              "lead.discovery.website.host.www." +
+                comparable,
+              place.id,
+            );
+          }
+        } catch {
+          // Invalid Places website URLs are not authorized.
+        }
+      }
+
       used += 1;
     }
 
