@@ -43,6 +43,24 @@ export class InferenceBudgetTracker {
       };
     }
 
+    // Daily budget check — runtime env takes precedence and 0 means unlimited.
+    const parsedDailyBudget = Number.parseInt(
+      process.env.AUTOMATON_INFERENCE_DAILY_BUDGET_CENTS ?? "0",
+      10,
+    );
+    const dailyBudgetCents = Number.isFinite(parsedDailyBudget)
+      ? Math.max(0, parsedDailyBudget)
+      : 0;
+    if (dailyBudgetCents > 0) {
+      const dailyCost = this.getDailyCost();
+      if (dailyCost + estimatedCostCents > dailyBudgetCents) {
+        return {
+          allowed: false,
+          reason: "Daily budget exhausted: " + dailyCost + "c spent + " + estimatedCostCents + "c estimated > " + dailyBudgetCents + "c limit",
+        };
+      }
+    }
+
     // Hourly budget check
     if (this.config.hourlyBudgetCents > 0) {
       const hourlyCost = this.getHourlyCost();

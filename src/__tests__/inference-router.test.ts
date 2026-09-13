@@ -568,6 +568,23 @@ describe("InferenceBudgetTracker", () => {
     expect(result.reason).toContain("Hourly budget exhausted");
   });
 
+  it("checkBudget denies when the runtime daily limit would be exceeded", () => {
+    const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
+    tracker.recordCost({
+      sessionId: "daily-cap", turnId: null, model: "gpt-5.2", provider: "openai",
+      inputTokens: 100, outputTokens: 50, costCents: 490,
+      latencyMs: 100, tier: "normal", taskType: "agent_turn", cacheHit: false,
+    });
+    process.env.AUTOMATON_INFERENCE_DAILY_BUDGET_CENTS = "500";
+    try {
+      const result = tracker.checkBudget(11, "gpt-5.2");
+      expect(result.allowed).toBe(false);
+      expect(result.reason).toContain("Daily budget exhausted");
+    } finally {
+      delete process.env.AUTOMATON_INFERENCE_DAILY_BUDGET_CENTS;
+    }
+  });
+
   it("checkBudget allows when no limits are set (0 = unlimited)", () => {
     const tracker = new InferenceBudgetTracker(db, DEFAULT_MODEL_STRATEGY_CONFIG);
 
