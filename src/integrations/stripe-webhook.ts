@@ -1,5 +1,9 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { createServer, type IncomingMessage, type Server } from "http";
+import {
+  handleDashboardRequest,
+  type DashboardHttpOptions,
+} from "../dashboard/http.js";
 
 const MAX_BODY_BYTES = 1_048_576;
 const SUPPORTED_EVENTS = new Set([
@@ -34,6 +38,7 @@ export type StripeWebhookOptions = {
   markProcessed: (event: StripeWebhookEvent) => void;
   onEvent: (event: StripeWebhookEvent) => Promise<void> | void;
   log?: (message: string) => void;
+  dashboard?: DashboardHttpOptions;
 };
 
 function readBody(request: IncomingMessage): Promise<Buffer> {
@@ -117,6 +122,17 @@ export function startStripeWebhookServer(options: StripeWebhookOptions): Server 
         json(response, 200, { status: "ok", service: "stripe-webhook" });
         return;
       }
+      if (
+        options.dashboard &&
+        handleDashboardRequest(
+          request,
+          response,
+          options.dashboard,
+        )
+      ) {
+        return;
+      }
+
       if (request.method !== "POST" || pathname !== "/webhooks/stripe") {
         json(response, 404, { error: "not_found" });
         return;

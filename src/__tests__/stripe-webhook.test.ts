@@ -84,4 +84,100 @@ describe("Stripe webhook", () => {
     });
     expect(response.status).toBe(400);
   });
+  it("serves the dashboard with protected API access", async () => {
+    const dashboardToken =
+      "dashboard-test-token-" + "x".repeat(32);
+    const secretValue =
+      "secret-that-must-not-be-returned";
+
+    const server = startStripeWebhookServer({
+      secret,
+      host: "127.0.0.1",
+      port: 0,
+      isProcessed: () => false,
+      markProcessed: () => undefined,
+      onEvent: () => undefined,
+      dashboard: {
+        token: dashboardToken,
+        getOverview: () => ({
+          agent: {
+            state: "running",
+          },
+          safeValue: "visible",
+        }),
+      },
+    });
+
+    servers.push(server);
+
+    await new Promise<void>((resolve) =>
+      server.once("listening", resolve)
+    );
+
+    const address = server.address();
+
+    if (
+      !address ||
+      typeof address === "string"
+    ) {
+      throw new Error("missing address");
+    }
+
+    const baseUrl =
+      "http://127.0.0.1:" + address.port;
+
+    const page = await fetch(
+      baseUrl + "/dashboard",
+    );
+
+    expect(page.status).toBe(200);
+    expect(
+      page.headers.get("content-type"),
+    ).toContain("text/html");
+
+    const html = await page.text();
+
+    expect(html).toContain("Thor Operations");
+    expect(html).not.toContain(dashboardToken);
+    expect(html).not.toContain(secretValue);
+
+    const unauthorized = await fetch(
+      baseUrl + "/api/dashboard/overview",
+    );
+
+    expect(unauthorized.status).toBe(401);
+    expect(await unauthorized.json()).toEqual({
+      error: "unauthorized",
+    });
+
+    const wrongToken = await fetch(
+      baseUrl + "/api/dashboard/overview",
+      {
+        headers: {
+          Authorization: "Bearer wrong-token",
+        },
+      },
+    );
+
+    expect(wrongToken.status).toBe(401);
+
+    const authorized = await fetch(
+      baseUrl + "/api/dashboard/overview",
+      {
+        headers: {
+          Authorization:
+            "Bearer " + dashboardToken,
+        },
+      },
+    );
+
+    expect(authorized.status).toBe(200);
+    expect(await authorized.json()).toEqual({
+      agent: {
+        state: "running",
+      },
+      safeValue: "visible",
+    });
+  });
+
 });

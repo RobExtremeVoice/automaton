@@ -36,6 +36,9 @@ import { prettySink } from "./observability/pretty-sink.js";
 import { bootstrapTopup } from "./conway/topup.js";
 import { randomUUID } from "crypto";
 import { isStoredStripeEvent, startStripeWebhookServer } from "./integrations/stripe-webhook.js";
+import {
+  createDashboardOverview,
+} from "./dashboard/overview.js";
 import { syncStripeEventToGoHighLevel } from "./integrations/stripe-ghl-sync.js";
 import { keccak256, toHex } from "viem";
 
@@ -220,6 +223,18 @@ async function run(): Promise<void> {
   // Stripe webhook receiver is local-only; expose it through the authenticated
   // Cloudflare tunnel, never by publishing the container port directly.
   const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim();
+  const dashboardToken =
+    process.env.THOR_DASHBOARD_TOKEN?.trim();
+
+  if (
+    dashboardToken &&
+    dashboardToken.length < 32
+  ) {
+    throw new Error(
+      "THOR_DASHBOARD_TOKEN must contain at least 32 characters",
+    );
+  }
+
   const stripeWebhook = stripeWebhookSecret
     ? startStripeWebhookServer({
         secret: stripeWebhookSecret,
@@ -266,6 +281,13 @@ async function run(): Promise<void> {
           logger.info("Verified Stripe webhook: " + event.type + " (" + event.id + ")");
         },
         log: (message) => logger.warn(message),
+        dashboard: dashboardToken
+          ? {
+              token: dashboardToken,
+              getOverview: () =>
+                createDashboardOverview(db.raw),
+            }
+          : undefined,
       })
     : undefined;
   if (stripeWebhook) {
