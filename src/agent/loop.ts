@@ -25,6 +25,9 @@ import type {
   ModelStrategyConfig,
 } from "../types.js";
 import { DEFAULT_MODEL_STRATEGY_CONFIG } from "../types.js";
+import {
+  resolveLocalWorkerMaxTurns,
+} from "./runtime-limits.js";
 import type { PolicyEngine } from "./policy-engine.js";
 import { buildSystemPrompt, buildWakeupPrompt } from "./system-prompt.js";
 import { buildContextMessages, trimContext } from "./context.js";
@@ -224,7 +227,8 @@ export async function runAgentLoop(
       const initializedWorkerPool = new LocalWorkerPool({
         db: db.raw,
         inference: workerInference,
-        maxTurns: process.env.AUTOMATON_STANDALONE === "true" ? 10 : undefined,
+        maxTurns:
+          resolveLocalWorkerMaxTurns(),
         conway,
         harnessRegistry,
         identity,
