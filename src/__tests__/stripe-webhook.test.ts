@@ -126,6 +126,34 @@ describe("Stripe webhook", () => {
     const baseUrl =
       "http://127.0.0.1:" + address.port;
 
+    const offerPage = await fetch(
+      baseUrl +
+        "/offers/gmb-review-reply-pack",
+    );
+
+    expect(offerPage.status).toBe(200);
+    expect(
+      offerPage.headers.get("content-type"),
+    ).toContain("text/html");
+
+    const offerHtml = await offerPage.text();
+
+    expect(offerHtml).toContain(
+      "Google Review Reply Pack",
+    );
+    expect(offerHtml).toContain(
+      "fZu28rbwx4d59dkflcaIM1s",
+    );
+    expect(offerHtml).toContain(
+      "bJe4gzgQRbFxaho0qiaIM1t",
+    );
+    expect(offerHtml).not.toContain(
+      dashboardToken,
+    );
+    expect(offerHtml).not.toContain(
+      "support@example.com",
+    );
+
     const page = await fetch(
       baseUrl + "/dashboard",
     );

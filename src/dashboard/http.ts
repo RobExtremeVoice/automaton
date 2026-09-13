@@ -111,6 +111,9 @@ function authorized(
 }
 
 import { DASHBOARD_HTML } from "./dashboard-page.js";
+import {
+  GMB_REVIEW_REPLY_HTML,
+} from "./gmb-review-reply-page.js";
 
 export function handleDashboardRequest(
 
@@ -129,6 +132,24 @@ export function handleDashboardRequest(
     "http://localhost",
 
   ).pathname;
+
+  if (
+    request.method === "GET" &&
+    (
+      pathname ===
+        "/offers/gmb-review-reply-pack" ||
+      pathname ===
+        "/offers/gmb-review-reply-pack/"
+    )
+  ) {
+    send(
+      response,
+      200,
+      "text/html; charset=utf-8",
+      GMB_REVIEW_REPLY_HTML,
+    );
+    return true;
+  }
 
   if (
 
