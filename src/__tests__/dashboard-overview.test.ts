@@ -118,7 +118,10 @@ describe("dashboard overview", () => {
       100,
       "normal",
       "agent_turn",
-      new Date().toISOString(),
+      new Date()
+        .toISOString()
+        .replace("T", " ")
+        .replace("Z", ""),
     );
 
     const overview =
