@@ -26,6 +26,8 @@ import type {
 } from "../types.js";
 import { DEFAULT_MODEL_STRATEGY_CONFIG } from "../types.js";
 import {
+  nextUtcDayStart,
+  resolveDailyInferenceBudgetCents,
   resolveLocalWorkerMaxTurns,
 } from "./runtime-limits.js";
 import type { PolicyEngine } from "./policy-engine.js";
@@ -195,10 +197,20 @@ export async function runAgentLoop(
       // harnesses can preserve tier + responseFormat contracts.
       const workerInference = createWorkerInferenceBridge({
         chat: async (params) => {
-          const dailyLimitCents = config.treasuryPolicy?.maxInferenceDailyCents ?? 0;
-          const spentTodayCents = budgetTracker.getDailyCost();
-          if (dailyLimitCents > 0 && spentTodayCents >= dailyLimitCents) {
-            throw new Error(`Worker daily inference budget exhausted: ${spentTodayCents}c / ${dailyLimitCents}c`);
+          const dailyLimitCents =
+            resolveDailyInferenceBudgetCents();
+          const spentTodayCents =
+            budgetTracker.getDailyCost();
+
+          if (
+            dailyLimitCents > 0 &&
+            spentTodayCents >= dailyLimitCents
+          ) {
+            throw new Error(
+              "Worker daily inference budget exhausted: " +
+              spentTodayCents + "c / " +
+              dailyLimitCents + "c",
+            );
           }
 
           const response = await unifiedInference.chat(params);
@@ -463,6 +475,35 @@ export async function runAgentLoop(
         break;
       }
 
+      const dailyInferenceLimitCents =
+        resolveDailyInferenceBudgetCents();
+      const dailyInferenceSpentCents =
+        budgetTracker.getDailyCost();
+
+      if (
+        dailyInferenceLimitCents > 0 &&
+        dailyInferenceSpentCents >=
+          dailyInferenceLimitCents
+      ) {
+        const resetAt = nextUtcDayStart();
+
+        log(
+          config,
+          "[DAILY BUDGET] " +
+            dailyInferenceSpentCents +
+            "c spent / " +
+            dailyInferenceLimitCents +
+            "c limit. Sleeping until " +
+            resetAt,
+        );
+
+        db.setKV("sleep_until", resetAt);
+        db.setAgentState("sleeping");
+        onStateChange?.("sleeping");
+        running = false;
+        break;
+      }
+
       // Check for unprocessed inbox messages using the state machine:
       // received → in_progress (claim) → processed (on success) or received/failed (on failure)
       if (!pendingInput) {
@@ -668,6 +709,39 @@ export async function runAgentLoop(
         },
         (msgs, opts) => inference.chat(msgs, { ...opts, tools: inferenceTools }),
       );
+
+      if (
+        routerResult.finishReason ===
+          "budget_exceeded" &&
+        routerResult.content.includes(
+          "Daily budget exhausted",
+        )
+      ) {
+        const resetAt = nextUtcDayStart();
+
+        if (claimedMessages.length > 0) {
+          resetInboxToReceived(
+            db.raw,
+            claimedMessages.map(
+              (message) => message.id,
+            ),
+          );
+        }
+
+        log(
+          config,
+          "[DAILY BUDGET] " +
+            routerResult.content +
+            ". Sleeping until " +
+            resetAt,
+        );
+
+        db.setKV("sleep_until", resetAt);
+        db.setAgentState("sleeping");
+        onStateChange?.("sleeping");
+        running = false;
+        break;
+      }
 
       // Build a compatible response for the rest of the loop
       const response = {

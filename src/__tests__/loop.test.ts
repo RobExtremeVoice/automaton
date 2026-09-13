@@ -33,6 +33,8 @@ describe("Agent Loop", () => {
   });
 
   afterEach(() => {
+    delete process.env
+      .AUTOMATON_INFERENCE_DAILY_BUDGET_CENTS;
     vi.restoreAllMocks();
     db.close();
   });
@@ -872,4 +874,78 @@ describe("Agent Loop", () => {
     expect(inference.calls.length).toBeGreaterThan(0);
     tickSpy.mockRestore();
   });
+
+  it("sleeps until the next UTC day when daily inference budget is exhausted", async () => {
+    process.env
+      .AUTOMATON_INFERENCE_DAILY_BUDGET_CENTS =
+      "5";
+
+    db.raw.prepare(`
+      INSERT INTO inference_costs (
+        id,
+        session_id,
+        turn_id,
+        model,
+        provider,
+        input_tokens,
+        output_tokens,
+        cost_cents,
+        latency_ms,
+        tier,
+        task_type,
+        cache_hit
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "daily-budget-cost",
+      "daily-budget-session",
+      null,
+      "gpt-5.2",
+      "openai",
+      100,
+      50,
+      5,
+      100,
+      "normal",
+      "agent_turn",
+      0,
+    );
+
+    const inference = new MockInferenceClient([
+      noToolResponse(
+        "This response must never be used.",
+      ),
+    ]);
+
+    const before = new Date();
+
+    await runAgentLoop({
+      identity,
+      config,
+      db,
+      conway,
+      inference,
+    });
+
+    const sleepUntilValue =
+      db.getKV("sleep_until");
+
+    expect(inference.calls.length).toBe(0);
+    expect(db.getAgentState()).toBe("sleeping");
+    expect(sleepUntilValue).toBeDefined();
+
+    const sleepUntil =
+      new Date(sleepUntilValue as string);
+
+    expect(sleepUntil.getUTCHours()).toBe(0);
+    expect(sleepUntil.getUTCMinutes()).toBe(0);
+    expect(sleepUntil.getUTCSeconds()).toBe(0);
+    expect(sleepUntil.getUTCMilliseconds()).toBe(0);
+    expect(sleepUntil.getTime()).toBeGreaterThan(
+      before.getTime(),
+    );
+    expect(
+      sleepUntil.getTime() - before.getTime(),
+    ).toBeLessThanOrEqual(86_400_000);
+  });
+
 });
