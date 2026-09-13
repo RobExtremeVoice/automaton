@@ -43,6 +43,7 @@ const GENERAL_WRAPPED_TOOL_ALLOWLIST = new Set([
   "review_memory",
   "forget",
   "x402_fetch",
+  "lead_discover_businesses",
   "ghl_get_location",
   "ghl_search_contacts",
   "ghl_upsert_contact",

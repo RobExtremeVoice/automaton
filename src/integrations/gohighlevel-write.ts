@@ -162,9 +162,41 @@ export function createGoHighLevelWriteTools(): AutomatonTool[] {
         releaseDailySlot(context);
       }
 
+      const source =
+        typeof payload.source === "string"
+          ? payload.source.trim().toLowerCase()
+          : "";
+
+      const isGooglePlacesLead =
+        source === "google_places" ||
+        source === "google business profile" ||
+        source === "google_business_profile";
+
+      let googlePlacesTagApplied = false;
+      let googlePlacesTag: string | null = null;
+
+      if (isGooglePlacesLead && contact.id) {
+        googlePlacesTag =
+          process.env.GHL_GOOGLE_PLACES_TAG?.trim() ||
+          "thor_gmb_laed";
+
+        await request(
+          "POST",
+          "/contacts/" +
+            encodeURIComponent(contact.id) +
+            "/tags",
+          { tags: [googlePlacesTag] },
+        );
+
+        googlePlacesTagApplied = true;
+      }
+
       return JSON.stringify({
         operation: created ? "created" : "upserted",
         contactId: contact.id ?? null,
+        source: source || null,
+        googlePlacesTag,
+        googlePlacesTagApplied,
         dailyCreationsUsed: created
           ? quota.used
           : Math.max(0, quota.used - 1),

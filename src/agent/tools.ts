@@ -26,6 +26,7 @@ import { createGoHighLevelWriteTools } from "../integrations/gohighlevel-write.j
 import { createGoHighLevelOpportunityTools } from "../integrations/gohighlevel-opportunities.js";
 import { createGoHighLevelEmailTools } from "../integrations/gohighlevel-email.js";
 import { createStripeRevenueTools } from "../integrations/stripe-revenue.js";
+import { createGooglePlacesLeadTools } from "../integrations/google-places-leads.js";
 import { createLogger } from "../observability/logger.js";
 
 const logger = createLogger("tools");
@@ -62,6 +63,7 @@ const EXTERNAL_SOURCE_TOOLS = new Set([
   "check_social_inbox",
   "ghl_get_location",
   "ghl_search_contacts",
+  "lead_discover_businesses",
   "ghl_upsert_contact",
   "ghl_search_opportunities",
   "ghl_upsert_opportunity",
@@ -132,6 +134,7 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
     ...createGoHighLevelOpportunityTools(),
     ...createGoHighLevelEmailTools(),
     ...createStripeRevenueTools(),
+    ...createGooglePlacesLeadTools(),
     // ── VM/Sandbox Tools ──
     {
       name: "exec",
