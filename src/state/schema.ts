@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -678,4 +678,42 @@ export const MIGRATION_V10 = `
 
   CREATE INDEX idx_knowledge_category ON knowledge_store(category);
   CREATE INDEX idx_knowledge_key ON knowledge_store(key);
+`;
+
+// === Thor Growth Fund ===
+
+export const MIGRATION_V12 = `
+  -- Schema version: 12
+  -- Append-only virtual Growth Fund ledger.
+
+  CREATE TABLE IF NOT EXISTS growth_fund_ledger (
+    id TEXT PRIMARY KEY,
+    external_key TEXT NOT NULL UNIQUE,
+    entry_type TEXT NOT NULL CHECK(entry_type IN (
+      'stripe_allocation',
+      'refund_reversal',
+      'dispute_reserve',
+      'dispute_release',
+      'clone_spend',
+      'manual_adjustment'
+    )),
+    amount_cents INTEGER NOT NULL CHECK(amount_cents != 0),
+    currency TEXT NOT NULL DEFAULT 'usd',
+    stripe_event_id TEXT,
+    stripe_object_id TEXT,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS
+    idx_growth_fund_created
+    ON growth_fund_ledger(created_at);
+
+  CREATE INDEX IF NOT EXISTS
+    idx_growth_fund_stripe_event
+    ON growth_fund_ledger(stripe_event_id);
+
+  CREATE INDEX IF NOT EXISTS
+    idx_growth_fund_stripe_object
+    ON growth_fund_ledger(stripe_object_id);
 `;
