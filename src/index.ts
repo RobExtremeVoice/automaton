@@ -40,6 +40,9 @@ import {
   createDashboardOverview,
 } from "./dashboard/overview.js";
 import { syncStripeEventToGoHighLevel } from "./integrations/stripe-ghl-sync.js";
+import {
+  recordStripeEventInGrowthFund,
+} from "./finance/stripe-growth-fund.js";
 import { keccak256, toHex } from "viem";
 
 const logger = createLogger("main");
@@ -255,6 +258,32 @@ async function run(): Promise<void> {
           });
         },
         onEvent: async (event) => {
+          const growthFund =
+            recordStripeEventInGrowthFund(
+              db.raw,
+              event,
+            );
+
+          db.setKV(
+            "stripe.webhook.growth_fund." + event.id,
+            JSON.stringify({
+              ...growthFund,
+              recordedAt: new Date().toISOString(),
+            }),
+          );
+
+          if (growthFund.outcome === "recorded") {
+            logger.info(
+              "Growth Fund " +
+              (growthFund.entryType ?? "entry") +
+              ": " +
+              String(growthFund.amountCents ?? 0) +
+              "c (" +
+              event.id +
+              ")",
+            );
+          }
+
           const ghlSync = await syncStripeEventToGoHighLevel(event, { db });
           db.setKV(
             "stripe.webhook.ghl_sync." + event.id,
