@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -716,4 +716,111 @@ export const MIGRATION_V12 = `
   CREATE INDEX IF NOT EXISTS
     idx_growth_fund_stripe_object
     ON growth_fund_ledger(stripe_object_id);
+`;
+
+// === Thor Growth Fund Seller Registry ===
+
+export const MIGRATION_V13 = `
+  -- Schema version: 13
+  -- Persistent seller, Payment Link and audit registry.
+
+  CREATE TABLE IF NOT EXISTS growth_fund_sellers (
+    seller_id TEXT PRIMARY KEY,
+    seller_type TEXT NOT NULL CHECK(
+      seller_type IN ('root', 'clone')
+    ),
+    child_id TEXT UNIQUE,
+    wallet_address TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(
+      status IN ('pending', 'authorized', 'revoked')
+    ),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    authorized_at TEXT,
+    revoked_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK(
+      (
+        seller_type = 'root' AND
+        child_id IS NULL
+      ) OR (
+        seller_type = 'clone' AND
+        child_id IS NOT NULL
+      )
+    ),
+    FOREIGN KEY(child_id)
+      REFERENCES children(id)
+      ON DELETE RESTRICT
+  );
+
+  CREATE INDEX IF NOT EXISTS
+    idx_growth_fund_sellers_status
+    ON growth_fund_sellers(status);
+
+  CREATE INDEX IF NOT EXISTS
+    idx_growth_fund_sellers_child
+    ON growth_fund_sellers(child_id);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_growth_fund_sellers_wallet
+    ON growth_fund_sellers(wallet_address)
+    WHERE wallet_address IS NOT NULL;
+
+  CREATE TABLE IF NOT EXISTS
+    growth_fund_payment_links (
+      payment_link_id TEXT PRIMARY KEY CHECK(
+        payment_link_id LIKE 'plink_%'
+      ),
+      seller_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(
+        status IN ('active', 'revoked')
+      ),
+      livemode INTEGER NOT NULL DEFAULT 1 CHECK(
+        livemode IN (0, 1)
+      ),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      revoked_at TEXT,
+      FOREIGN KEY(seller_id)
+        REFERENCES growth_fund_sellers(seller_id)
+        ON DELETE RESTRICT
+  );
+
+  CREATE INDEX IF NOT EXISTS
+    idx_growth_fund_payment_links_seller
+    ON growth_fund_payment_links(seller_id);
+
+  CREATE INDEX IF NOT EXISTS
+    idx_growth_fund_payment_links_status
+    ON growth_fund_payment_links(status);
+
+  CREATE TABLE IF NOT EXISTS
+    growth_fund_seller_events (
+      id TEXT PRIMARY KEY,
+      seller_id TEXT NOT NULL,
+      event_type TEXT NOT NULL CHECK(
+        event_type IN (
+          'registered',
+          'authorized',
+          'revoked',
+          'payment_link_registered',
+          'payment_link_revoked'
+        )
+      ),
+      payment_link_id TEXT,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(seller_id)
+        REFERENCES growth_fund_sellers(seller_id)
+        ON DELETE RESTRICT
+  );
+
+  CREATE INDEX IF NOT EXISTS
+    idx_growth_fund_seller_events_seller
+    ON growth_fund_seller_events(
+      seller_id,
+      created_at
+    );
+
+  CREATE INDEX IF NOT EXISTS
+    idx_growth_fund_seller_events_link
+    ON growth_fund_seller_events(payment_link_id);
 `;
