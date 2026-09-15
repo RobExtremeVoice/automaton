@@ -101,6 +101,11 @@ function currency(value: unknown, allowed: Set<string>): string {
 
 const SENSITIVE_METADATA = /secret|token|password|api.?key|private|card|cvc|cvv|ssn/i;
 
+const RESERVED_AUTOMATON_METADATA = new Set([
+  "automaton_growth_fund",
+  "automaton_seller_id",
+]);
+
 function metadata(value: unknown): Record<string, string> {
   if (value === undefined || value === null) return {};
   if (typeof value !== "object" || Array.isArray(value)) {
@@ -111,8 +116,15 @@ function metadata(value: unknown): Record<string, string> {
   if (entries.length > 20) throw new Error("metadata cannot exceed 20 entries");
   for (const [rawKey, rawValue] of entries) {
     const key = rawKey.trim();
-    if (!key || key.length > 40 || SENSITIVE_METADATA.test(key)) {
-      throw new Error("metadata contains an invalid or sensitive key");
+    if (
+      !key ||
+      key.length > 40 ||
+      SENSITIVE_METADATA.test(key) ||
+      RESERVED_AUTOMATON_METADATA.has(key)
+    ) {
+      throw new Error(
+        "metadata contains an invalid, sensitive, or reserved key",
+      );
     }
     if (typeof rawValue !== "string") throw new Error("metadata values must be strings");
     const normalized = rawValue.trim();
@@ -120,6 +132,38 @@ function metadata(value: unknown): Record<string, string> {
     result[key] = normalized;
   }
   return result;
+}
+
+function growthFundSellerId(): string {
+  const sellerId =
+    process.env
+      .AUTOMATON_GROWTH_FUND_SELLER_ID
+      ?.trim();
+
+  const authorizedSellers = new Set(
+    (
+      process.env
+        .AUTOMATON_GROWTH_FUND_AUTHORIZED_SELLER_IDS ??
+      ""
+    )
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+
+  if (!sellerId) {
+    throw new Error(
+      "AUTOMATON_GROWTH_FUND_SELLER_ID is not configured",
+    );
+  }
+
+  if (!authorizedSellers.has(sellerId)) {
+    throw new Error(
+      "Stripe seller is not authorized for Growth Fund",
+    );
+  }
+
+  return sellerId;
 }
 
 function idempotency(operation: string, value: unknown): string {
@@ -297,20 +341,48 @@ export function createStripeRevenueTools(): AutomatonTool[] {
           throw new Error("quantity must be an integer from 1 to 100");
         }
         const meta = metadata(args.metadata);
+        const sellerId = growthFundSellerId();
+        const managedMetadata = {
+          ...meta,
+          automaton_growth_fund: "eligible",
+          automaton_seller_id: sellerId,
+        };
+
         const form = new URLSearchParams({
           "line_items[0][price]": priceId,
           "line_items[0][quantity]": String(quantity),
         });
+
+        addMetadata(form, managedMetadata);
+
+        form.set(
+          "payment_intent_data[metadata]" +
+            "[automaton_growth_fund]",
+          "eligible",
+        );
+        form.set(
+          "payment_intent_data[metadata]" +
+            "[automaton_seller_id]",
+          sellerId,
+        );
+
         if (config.successUrl) {
           form.set("after_completion[type]", "redirect");
           form.set("after_completion[redirect][url]", config.successUrl);
         }
-        addMetadata(form, meta);
         const result = await request(
           "POST",
           "/v1/payment_links",
           form,
-          idempotency("payment-link", { priceId, quantity, meta, successUrl: config.successUrl }),
+          idempotency(
+            "payment-link",
+            {
+              priceId,
+              quantity,
+              managedMetadata,
+              successUrl: config.successUrl,
+            },
+          ),
         );
         return JSON.stringify({
           paymentLinkId: result.id ?? null,

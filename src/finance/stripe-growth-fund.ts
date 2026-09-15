@@ -44,11 +44,117 @@ function currency(
   return text(object.currency)?.toLowerCase();
 }
 
+function configuredIds(
+  value: string | undefined,
+  prefix?: string,
+): Set<string> {
+  return new Set(
+    (value ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(
+        (item) =>
+          item.length > 0 &&
+          (!prefix || item.startsWith(prefix)),
+      ),
+  );
+}
+
+function objectMetadata(
+  object: Record<string, unknown>,
+): Record<string, string> {
+  const value = object.metadata;
+
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+
+  for (
+    const [key, item] of Object.entries(
+      value as Record<string, unknown>,
+    )
+  ) {
+    if (typeof item === "string") {
+      result[key] = item.trim();
+    }
+  }
+
+  return result;
+}
+
+type SaleAttribution = {
+  sellerId: string;
+  paymentLinkId?: string;
+  method: "payment_link_allowlist" | "metadata";
+};
+
+function resolveSaleAttribution(
+  event: StripeWebhookEvent,
+  object: Record<string, unknown>,
+  environment: NodeJS.ProcessEnv,
+): SaleAttribution | undefined {
+  const authorizedLinks = configuredIds(
+    environment
+      .AUTOMATON_GROWTH_FUND_PAYMENT_LINK_IDS,
+    "plink_",
+  );
+
+  const authorizedSellers = configuredIds(
+    environment
+      .AUTOMATON_GROWTH_FUND_AUTHORIZED_SELLER_IDS,
+  );
+
+  const localSellerId = text(
+    environment.AUTOMATON_GROWTH_FUND_SELLER_ID,
+  );
+
+  const paymentLinkId = text(object.payment_link);
+
+  if (
+    event.type === "checkout.session.completed" &&
+    paymentLinkId &&
+    authorizedLinks.has(paymentLinkId) &&
+    localSellerId &&
+    authorizedSellers.has(localSellerId)
+  ) {
+    return {
+      sellerId: localSellerId,
+      paymentLinkId,
+      method: "payment_link_allowlist",
+    };
+  }
+
+  const metadata = objectMetadata(object);
+  const metadataSellerId =
+    text(metadata.automaton_seller_id);
+
+  if (
+    metadata.automaton_growth_fund === "eligible" &&
+    metadataSellerId &&
+    authorizedSellers.has(metadataSellerId)
+  ) {
+    return {
+      sellerId: metadataSellerId,
+      paymentLinkId,
+      method: "metadata",
+    };
+  }
+
+  return undefined;
+}
+
 function allocationResult(
   db: Database,
   event: StripeWebhookEvent,
   object: Record<string, unknown>,
   basisPoints: number,
+  environment: NodeJS.ProcessEnv,
 ): StripeGrowthFundResult {
   if (
     event.type === "checkout.session.completed" &&
@@ -57,6 +163,19 @@ function allocationResult(
     return {
       outcome: "skipped",
       reason: "checkout_not_paid",
+    };
+  }
+
+  const attribution = resolveSaleAttribution(
+    event,
+    object,
+    environment,
+  );
+
+  if (!attribution) {
+    return {
+      outcome: "skipped",
+      reason: "unauthorized_sale",
     };
   }
 
@@ -117,6 +236,10 @@ function allocationResult(
       sourceEventType: event.type,
       grossAmountCents: grossAmount,
       basisPoints,
+      sellerId: attribution.sellerId,
+      attributionMethod: attribution.method,
+      paymentLinkId:
+        attribution.paymentLinkId ?? null,
     },
   });
 
@@ -137,10 +260,16 @@ function refundResult(
   basisPoints: number,
 ): StripeGrowthFundResult {
   const chargeId = text(object.id);
+  const paymentIntentId =
+    text(object.payment_intent);
   const refundedGross =
     safeAmount(object.amount_refunded);
 
-  if (!chargeId || refundedGross === undefined) {
+  if (
+    !chargeId ||
+    !paymentIntentId ||
+    refundedGross === undefined
+  ) {
     return {
       outcome: "skipped",
       reason: "invalid_refund",
@@ -151,6 +280,21 @@ function refundResult(
     return {
       outcome: "skipped",
       reason: "unsupported_currency",
+    };
+  }
+
+  const originalAllocation = db.prepare(`
+    SELECT 1
+    FROM growth_fund_ledger
+    WHERE entry_type = 'stripe_allocation'
+      AND stripe_object_id = ?
+    LIMIT 1
+  `).get(paymentIntentId);
+
+  if (!originalAllocation) {
+    return {
+      outcome: "skipped",
+      reason: "original_payment_not_allocated",
     };
   }
 
@@ -194,6 +338,7 @@ function refundResult(
     metadata: {
       refundedGrossCents: refundedGross,
       cumulativeReversalCents: targetReversal,
+      paymentIntentId,
       basisPoints,
     },
   });
@@ -215,9 +360,15 @@ function disputeResult(
   basisPoints: number,
 ): StripeGrowthFundResult {
   const disputeId = text(object.id);
+  const paymentIntentId =
+    text(object.payment_intent);
   const disputedGross = safeAmount(object.amount);
 
-  if (!disputeId || disputedGross === undefined) {
+  if (
+    !disputeId ||
+    !paymentIntentId ||
+    disputedGross === undefined
+  ) {
     return {
       outcome: "skipped",
       reason: "invalid_dispute",
@@ -228,6 +379,21 @@ function disputeResult(
     return {
       outcome: "skipped",
       reason: "unsupported_currency",
+    };
+  }
+
+  const originalAllocation = db.prepare(`
+    SELECT 1
+    FROM growth_fund_ledger
+    WHERE entry_type = 'stripe_allocation'
+      AND stripe_object_id = ?
+    LIMIT 1
+  `).get(paymentIntentId);
+
+  if (!originalAllocation) {
+    return {
+      outcome: "skipped",
+      reason: "original_payment_not_allocated",
     };
   }
 
@@ -255,6 +421,7 @@ function disputeResult(
     stripeObjectId: disputeId,
     metadata: {
       disputedGrossCents: disputedGross,
+      paymentIntentId,
       basisPoints,
     },
   });
@@ -296,6 +463,7 @@ export function recordStripeEventInGrowthFund(
         event,
         object,
         basisPoints,
+        environment,
       );
     }
 

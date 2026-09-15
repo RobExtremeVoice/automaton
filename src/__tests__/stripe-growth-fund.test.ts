@@ -10,7 +10,8 @@ import {
   getGrowthFundSummary,
 } from "../finance/growth-fund.js";
 import {
-  recordStripeEventInGrowthFund,
+  recordStripeEventInGrowthFund as
+    recordStripeEventInGrowthFundRaw,
 } from "../finance/stripe-growth-fund.js";
 import type {
   StripeWebhookEvent,
@@ -18,6 +19,28 @@ import type {
 
 describe("Stripe Growth Fund accounting", () => {
   let db: Database.Database | undefined;
+
+  const authorizedEnvironment = {
+    AUTOMATON_GROWTH_FUND_BASIS_POINTS: "1000",
+    AUTOMATON_GROWTH_FUND_SELLER_ID: "thor",
+    AUTOMATON_GROWTH_FUND_AUTHORIZED_SELLER_IDS:
+      "thor",
+    AUTOMATON_GROWTH_FUND_PAYMENT_LINK_IDS:
+      "plink_thor",
+  };
+
+  function recordStripeEventInGrowthFund(
+    raw: Database.Database,
+    stripeEvent: StripeWebhookEvent,
+    environment: NodeJS.ProcessEnv =
+      authorizedEnvironment,
+  ) {
+    return recordStripeEventInGrowthFundRaw(
+      raw,
+      stripeEvent,
+      environment,
+    );
+  }
 
   function database(): Database.Database {
     db = new Database(":memory:");
@@ -55,6 +78,7 @@ describe("Stripe Growth Fund accounting", () => {
           id: "cs_example",
           payment_intent: "pi_example",
           payment_status: "paid",
+          payment_link: "plink_thor",
           amount_total: 7_900,
           currency: "usd",
         },
@@ -70,6 +94,10 @@ describe("Stripe Growth Fund accounting", () => {
           id: "pi_example",
           amount_received: 7_900,
           currency: "usd",
+          metadata: {
+            automaton_growth_fund: "eligible",
+            automaton_seller_id: "thor",
+          },
         },
       ),
     );
@@ -96,6 +124,10 @@ describe("Stripe Growth Fund accounting", () => {
           id: "pi_refund",
           amount_received: 12_900,
           currency: "usd",
+          metadata: {
+            automaton_growth_fund: "eligible",
+            automaton_seller_id: "thor",
+          },
         },
       ),
     );
@@ -107,6 +139,7 @@ describe("Stripe Growth Fund accounting", () => {
         "charge.refunded",
         {
           id: "ch_example",
+          payment_intent: "pi_refund",
           amount_refunded: 2_900,
           currency: "usd",
         },
@@ -120,6 +153,7 @@ describe("Stripe Growth Fund accounting", () => {
         "charge.refunded",
         {
           id: "ch_example",
+          payment_intent: "pi_refund",
           amount_refunded: 3_900,
           currency: "usd",
         },
@@ -133,6 +167,7 @@ describe("Stripe Growth Fund accounting", () => {
         "charge.refunded",
         {
           id: "ch_example",
+          payment_intent: "pi_refund",
           amount_refunded: 3_900,
           currency: "usd",
         },
@@ -150,6 +185,23 @@ describe("Stripe Growth Fund accounting", () => {
   it("reserves ten percent for disputes", () => {
     const raw = database();
 
+    recordStripeEventInGrowthFund(
+      raw,
+      event(
+        "evt_dispute_payment",
+        "payment_intent.succeeded",
+        {
+          id: "pi_dispute",
+          amount_received: 7_900,
+          currency: "usd",
+          metadata: {
+            automaton_growth_fund: "eligible",
+            automaton_seller_id: "thor",
+          },
+        },
+      ),
+    );
+
     const result = recordStripeEventInGrowthFund(
       raw,
       event(
@@ -157,6 +209,7 @@ describe("Stripe Growth Fund accounting", () => {
         "charge.dispute.created",
         {
           id: "dp_example",
+          payment_intent: "pi_dispute",
           amount: 7_900,
           currency: "usd",
         },
@@ -167,7 +220,7 @@ describe("Stripe Growth Fund accounting", () => {
     expect(result.amountCents).toBe(-790);
     expect(
       getGrowthFundSummary(raw).balanceCents,
-    ).toBe(-790);
+    ).toBe(0);
   });
 
   it("skips unpaid, foreign and failed events", () => {
@@ -199,6 +252,10 @@ describe("Stripe Growth Fund accounting", () => {
             id: "pi_eur",
             amount_received: 7_900,
             currency: "eur",
+            metadata: {
+              automaton_growth_fund: "eligible",
+              automaton_seller_id: "thor",
+            },
           },
         ),
       ).reason,
@@ -235,6 +292,10 @@ describe("Stripe Growth Fund accounting", () => {
           id: "pi_disabled",
           amount_received: 7_900,
           currency: "usd",
+          metadata: {
+            automaton_growth_fund: "eligible",
+            automaton_seller_id: "thor",
+          },
         },
       ),
       {
@@ -249,4 +310,90 @@ describe("Stripe Growth Fund accounting", () => {
       getGrowthFundSummary(raw).entryCount,
     ).toBe(0);
   });
+  it("rejects sales without Thor or clone attribution", () => {
+    const raw = database();
+
+    const checkout = recordStripeEventInGrowthFund(
+      raw,
+      event(
+        "evt_external_checkout",
+        "checkout.session.completed",
+        {
+          id: "cs_external",
+          payment_intent: "pi_external",
+          payment_link: "plink_external",
+          payment_status: "paid",
+          amount_total: 20_000,
+          currency: "usd",
+        },
+      ),
+    );
+
+    const payment = recordStripeEventInGrowthFund(
+      raw,
+      event(
+        "evt_external_payment",
+        "payment_intent.succeeded",
+        {
+          id: "pi_external",
+          amount_received: 20_000,
+          currency: "usd",
+          metadata: {},
+        },
+      ),
+    );
+
+    expect(checkout.outcome).toBe("skipped");
+    expect(checkout.reason).toBe("unauthorized_sale");
+    expect(payment.outcome).toBe("skipped");
+    expect(payment.reason).toBe("unauthorized_sale");
+    expect(
+      getGrowthFundSummary(raw).entryCount,
+    ).toBe(0);
+  });
+
+  it("ignores reversals for external payments", () => {
+    const raw = database();
+
+    const refund = recordStripeEventInGrowthFund(
+      raw,
+      event(
+        "evt_external_refund",
+        "charge.refunded",
+        {
+          id: "ch_external",
+          payment_intent: "pi_external",
+          amount_refunded: 20_000,
+          currency: "usd",
+        },
+      ),
+    );
+
+    const dispute = recordStripeEventInGrowthFund(
+      raw,
+      event(
+        "evt_external_dispute",
+        "charge.dispute.created",
+        {
+          id: "dp_external",
+          payment_intent: "pi_external",
+          amount: 20_000,
+          currency: "usd",
+        },
+      ),
+    );
+
+    expect(refund.outcome).toBe("skipped");
+    expect(refund.reason).toBe(
+      "original_payment_not_allocated",
+    );
+    expect(dispute.outcome).toBe("skipped");
+    expect(dispute.reason).toBe(
+      "original_payment_not_allocated",
+    );
+    expect(
+      getGrowthFundSummary(raw).entryCount,
+    ).toBe(0);
+  });
+
 });

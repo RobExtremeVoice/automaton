@@ -23,6 +23,11 @@ describe("Stripe revenue tools", () => {
     process.env.STRIPE_MODE = "test";
     process.env.STRIPE_ALLOWED_CURRENCIES = "usd,eur";
     process.env.STRIPE_MAX_PRICE_CENTS = "100000";
+    process.env.AUTOMATON_GROWTH_FUND_SELLER_ID =
+      "thor";
+    process.env
+      .AUTOMATON_GROWTH_FUND_AUTHORIZED_SELLER_IDS =
+      "thor";
     delete process.env.STRIPE_SUCCESS_URL;
   });
 
@@ -32,6 +37,10 @@ describe("Stripe revenue tools", () => {
     delete process.env.STRIPE_MODE;
     delete process.env.STRIPE_ALLOWED_CURRENCIES;
     delete process.env.STRIPE_MAX_PRICE_CENTS;
+    delete process.env
+      .AUTOMATON_GROWTH_FUND_SELLER_ID;
+    delete process.env
+      .AUTOMATON_GROWTH_FUND_AUTHORIZED_SELLER_IDS;
     delete process.env.STRIPE_SUCCESS_URL;
   });
 
@@ -128,7 +137,62 @@ describe("Stripe revenue tools", () => {
       { priceId: "price_123", quantity: 1, metadata: { offer: "pilot" } }, context,
     ));
     expect(result.paymentLinkId).toBe("plink_123");
-    expect(fetchMock.mock.calls[0][1].body).toContain("after_completion");
+
+    const requestBody = new URLSearchParams(
+      fetchMock.mock.calls[0][1].body,
+    );
+
+    expect(requestBody.get(
+      "metadata[automaton_growth_fund]",
+    )).toBe("eligible");
+
+    expect(requestBody.get(
+      "metadata[automaton_seller_id]",
+    )).toBe("thor");
+
+    expect(requestBody.get(
+      "payment_intent_data[metadata]" +
+        "[automaton_growth_fund]",
+    )).toBe("eligible");
+
+    expect(requestBody.get(
+      "payment_intent_data[metadata]" +
+        "[automaton_seller_id]",
+    )).toBe("thor");
+
+    expect(
+      fetchMock.mock.calls[0][1].body,
+    ).toContain("after_completion");
+  });
+
+  it("blocks agent-controlled attribution metadata", async () => {
+    await expect(
+      tool("stripe_create_payment_link").execute(
+        {
+          priceId: "price_123",
+          metadata: {
+            automaton_seller_id: "external",
+          },
+        },
+        context,
+      ),
+    ).rejects.toThrow("reserved");
+  });
+
+  it("blocks an unauthorized runtime seller", async () => {
+    process.env.AUTOMATON_GROWTH_FUND_SELLER_ID =
+      "unapproved-clone";
+
+    await expect(
+      tool("stripe_create_payment_link").execute(
+        {
+          priceId: "price_123",
+        },
+        context,
+      ),
+    ).rejects.toThrow(
+      "not authorized for Growth Fund",
+    );
   });
 
   it("retrieves sanitized Checkout Session status", async () => {
