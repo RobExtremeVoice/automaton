@@ -11,6 +11,9 @@ import {
 import {
   createDatabase,
 } from "../state/database.js";
+import {
+  recordGrowthFundEntry,
+} from "../finance/growth-fund.js";
 
 describe("dashboard overview", () => {
   afterEach(() => {
@@ -26,6 +29,8 @@ describe("dashboard overview", () => {
       .GHL_MAX_NEW_CONTACTS_DAILY;
     delete process.env.GHL_MAX_OUTREACH_DAILY;
     delete process.env.STRIPE_MODE;
+    delete process.env
+      .AUTOMATON_GROWTH_FUND_BASIS_POINTS;
   });
 
   it("returns operational state without secrets", () => {
@@ -50,6 +55,9 @@ describe("dashboard overview", () => {
     process.env.GHL_MAX_OUTREACH_DAILY =
       "30";
     process.env.STRIPE_MODE = "live";
+    process.env
+      .AUTOMATON_GROWTH_FUND_BASIS_POINTS =
+      "1000";
     process.env.GOOGLE_PLACES_API_KEY =
       "must-not-appear";
     process.env.STRIPE_RESTRICTED_KEY =
@@ -124,6 +132,14 @@ describe("dashboard overview", () => {
         .replace("Z", ""),
     );
 
+    recordGrowthFundEntry(db, {
+      externalKey: "stripe-payment:pi_dashboard",
+      entryType: "stripe_allocation",
+      amountCents: 790,
+      stripeEventId: "evt_dashboard",
+      stripeObjectId: "pi_dashboard",
+    });
+
     const overview =
       createDashboardOverview(db) as any;
 
@@ -141,6 +157,18 @@ describe("dashboard overview", () => {
     expect(overview.finance.stripeMode).toBe(
       "live",
     );
+    expect(
+      overview.finance.growthFund.balanceCents,
+    ).toBe(790);
+    expect(
+      overview.finance.growthFund.allocatedCents,
+    ).toBe(790);
+    expect(
+      overview.finance.growthFund.entryCount,
+    ).toBe(1);
+    expect(
+      overview.finance.growthFund.percentage,
+    ).toBe(10);
     expect(overview.counts.goals.active).toBe(1);
     expect(overview.counts.tasks.running).toBe(1);
     expect(overview.goals[0].id).toBe("goal-1");

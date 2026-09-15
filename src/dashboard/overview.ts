@@ -1,6 +1,9 @@
 import type BetterSqlite3 from "better-sqlite3";
 
 import type { AgentState } from "../types.js";
+import {
+  getGrowthFundSummary,
+} from "../finance/growth-fund.js";
 
 type Database = BetterSqlite3.Database;
 
@@ -337,6 +340,14 @@ export function createDashboardOverview(
 
   );
 
+  const growthFund =
+    getGrowthFundSummary(db);
+
+  const growthFundBasisPoints = integerEnv(
+    "AUTOMATON_GROWTH_FUND_BASIS_POINTS",
+    1_000,
+  );
+
   return {
 
     generatedAt,
@@ -430,6 +441,13 @@ export function createDashboardOverview(
       stripeMode:
 
         process.env.STRIPE_MODE ?? "unknown",
+
+      growthFund: {
+        ...growthFund,
+        basisPoints: growthFundBasisPoints,
+        percentage:
+          growthFundBasisPoints / 100,
+      },
 
       lastStripeEvent:
 
