@@ -5,7 +5,10 @@ import {
   expect,
   it,
 } from "vitest";
-import { MIGRATION_V12 } from "../state/schema.js";
+import {
+  MIGRATION_V12,
+  MIGRATION_V13,
+} from "../state/schema.js";
 import {
   getGrowthFundSummary,
 } from "../finance/growth-fund.js";
@@ -13,6 +16,12 @@ import {
   recordStripeEventInGrowthFund as
     recordStripeEventInGrowthFundRaw,
 } from "../finance/stripe-growth-fund.js";
+import {
+  authorizeGrowthFundSeller,
+  registerGrowthFundPaymentLink,
+  registerGrowthFundSeller,
+  revokeGrowthFundSeller,
+} from "../finance/seller-registry.js";
 import type {
   StripeWebhookEvent,
 } from "../integrations/stripe-webhook.js";
@@ -45,6 +54,13 @@ describe("Stripe Growth Fund accounting", () => {
   function database(): Database.Database {
     db = new Database(":memory:");
     db.exec(MIGRATION_V12);
+    db.exec(`
+      CREATE TABLE children (
+        id TEXT PRIMARY KEY,
+        status TEXT NOT NULL
+      );
+    `);
+    db.exec(MIGRATION_V13);
     return db;
   }
 
@@ -310,6 +326,184 @@ describe("Stripe Growth Fund accounting", () => {
       getGrowthFundSummary(raw).entryCount,
     ).toBe(0);
   });
+  it("rejects wrong mode, forged metadata and revoked sellers", () => {
+    const raw = database();
+
+    registerGrowthFundSeller(raw, {
+      sellerId: "security-seller",
+      sellerType: "root",
+      walletAddress:
+        "0x2222222222222222222222222222222222222222",
+    });
+
+    authorizeGrowthFundSeller(
+      raw,
+      "security-seller",
+    );
+
+    registerGrowthFundPaymentLink(raw, {
+      paymentLinkId: "plink_security",
+      sellerId: "security-seller",
+      livemode: true,
+    });
+
+    const environment = {
+      AUTOMATON_GROWTH_FUND_BASIS_POINTS:
+        "1000",
+    };
+
+    const wrongMode =
+      recordStripeEventInGrowthFund(
+        raw,
+        {
+          id: "evt_wrong_mode",
+          type: "checkout.session.completed",
+          livemode: false,
+          data: {
+            object: {
+              id: "cs_wrong_mode",
+              payment_intent: "pi_wrong_mode",
+              payment_link: "plink_security",
+              payment_status: "paid",
+              amount_total: 7_900,
+              currency: "usd",
+            },
+          },
+        },
+        environment,
+      );
+
+    const forgedMetadata =
+      recordStripeEventInGrowthFund(
+        raw,
+        event(
+          "evt_forged_metadata",
+          "payment_intent.succeeded",
+          {
+            id: "pi_forged",
+            amount_received: 7_900,
+            currency: "usd",
+            metadata: {
+              automaton_growth_fund:
+                "eligible",
+              automaton_seller_id:
+                "unknown-seller",
+            },
+          },
+        ),
+        environment,
+      );
+
+    revokeGrowthFundSeller(
+      raw,
+      "security-seller",
+      "security test",
+    );
+
+    const revokedLink =
+      recordStripeEventInGrowthFund(
+        raw,
+        event(
+          "evt_revoked_link",
+          "checkout.session.completed",
+          {
+            id: "cs_revoked",
+            payment_intent: "pi_revoked",
+            payment_link: "plink_security",
+            payment_status: "paid",
+            amount_total: 7_900,
+            currency: "usd",
+          },
+        ),
+        environment,
+      );
+
+    const revokedMetadata =
+      recordStripeEventInGrowthFund(
+        raw,
+        event(
+          "evt_revoked_metadata",
+          "payment_intent.succeeded",
+          {
+            id: "pi_revoked_metadata",
+            amount_received: 7_900,
+            currency: "usd",
+            metadata: {
+              automaton_growth_fund:
+                "eligible",
+              automaton_seller_id:
+                "security-seller",
+            },
+          },
+        ),
+        environment,
+      );
+
+    expect(wrongMode.reason).toBe(
+      "unauthorized_sale",
+    );
+    expect(forgedMetadata.reason).toBe(
+      "unauthorized_sale",
+    );
+    expect(revokedLink.reason).toBe(
+      "unauthorized_sale",
+    );
+    expect(revokedMetadata.reason).toBe(
+      "unauthorized_sale",
+    );
+    expect(
+      getGrowthFundSummary(raw).entryCount,
+    ).toBe(0);
+  });
+
+  it("uses the persistent seller registry before environment fallback", () => {
+    const raw = database();
+
+    registerGrowthFundSeller(raw, {
+      sellerId: "thor-registry",
+      sellerType: "root",
+      walletAddress:
+        "0x1111111111111111111111111111111111111111",
+    });
+
+    authorizeGrowthFundSeller(
+      raw,
+      "thor-registry",
+    );
+
+    registerGrowthFundPaymentLink(raw, {
+      paymentLinkId: "plink_registry",
+      sellerId: "thor-registry",
+      livemode: true,
+    });
+
+    const result = recordStripeEventInGrowthFund(
+      raw,
+      event(
+        "evt_registry_checkout",
+        "checkout.session.completed",
+        {
+          id: "cs_registry",
+          payment_intent: "pi_registry",
+          payment_link: "plink_registry",
+          payment_status: "paid",
+          amount_total: 7_900,
+          currency: "usd",
+        },
+      ),
+      {
+        AUTOMATON_GROWTH_FUND_BASIS_POINTS:
+          "1000",
+      },
+    );
+
+    expect(result.outcome).toBe("recorded");
+    expect(result.amountCents).toBe(790);
+    expect(
+      getGrowthFundSummary(raw).balanceCents,
+    ).toBe(790);
+  });
+
   it("rejects sales without Thor or clone attribution", () => {
     const raw = database();
 

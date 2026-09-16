@@ -7,6 +7,10 @@ import {
   recordGrowthFundEntry,
   resolveGrowthFundBasisPoints,
 } from "./growth-fund.js";
+import {
+  isGrowthFundSellerAuthorized,
+  resolveAuthorizedPaymentLinkSeller,
+} from "./seller-registry.js";
 
 type Database = BetterSqlite3.Database;
 
@@ -94,7 +98,26 @@ type SaleAttribution = {
   method: "payment_link_allowlist" | "metadata";
 };
 
+function sellerRegistryAvailable(
+  db: Database,
+): boolean {
+  const count = Number(
+    db.prepare(`
+      SELECT COUNT(*)
+      FROM sqlite_master
+      WHERE type = 'table'
+        AND name IN (
+          'growth_fund_sellers',
+          'growth_fund_payment_links'
+        )
+    `).pluck().get() ?? 0,
+  );
+
+  return count === 2;
+}
+
 function resolveSaleAttribution(
+  db: Database,
   event: StripeWebhookEvent,
   object: Record<string, unknown>,
   environment: NodeJS.ProcessEnv,
@@ -115,6 +138,47 @@ function resolveSaleAttribution(
   );
 
   const paymentLinkId = text(object.payment_link);
+  const metadata = objectMetadata(object);
+  const metadataSellerId =
+    text(metadata.automaton_seller_id);
+
+  if (sellerRegistryAvailable(db)) {
+    if (
+      event.type === "checkout.session.completed" &&
+      paymentLinkId
+    ) {
+      const registeredSellerId =
+        resolveAuthorizedPaymentLinkSeller(
+          db,
+          paymentLinkId,
+          event.livemode === true,
+        );
+
+      if (registeredSellerId) {
+        return {
+          sellerId: registeredSellerId,
+          paymentLinkId,
+          method: "payment_link_allowlist",
+        };
+      }
+    }
+
+    if (
+      metadata.automaton_growth_fund ===
+        "eligible" &&
+      metadataSellerId &&
+      isGrowthFundSellerAuthorized(
+        db,
+        metadataSellerId,
+      )
+    ) {
+      return {
+        sellerId: metadataSellerId,
+        paymentLinkId,
+        method: "metadata",
+      };
+    }
+  }
 
   if (
     event.type === "checkout.session.completed" &&
@@ -129,10 +193,6 @@ function resolveSaleAttribution(
       method: "payment_link_allowlist",
     };
   }
-
-  const metadata = objectMetadata(object);
-  const metadataSellerId =
-    text(metadata.automaton_seller_id);
 
   if (
     metadata.automaton_growth_fund === "eligible" &&
@@ -167,6 +227,7 @@ function allocationResult(
   }
 
   const attribution = resolveSaleAttribution(
+    db,
     event,
     object,
     environment,
