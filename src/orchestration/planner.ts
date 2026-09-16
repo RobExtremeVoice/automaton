@@ -346,6 +346,9 @@ You CANNOT:
 12. No task should take more than 4 hours - split longer tasks
 13. Include at least one checkpoint task per 5 execution tasks
 14. Parallelizable tasks should have no mutual dependencies
+15. Assign Stripe, payment, pricing, revenue, refund, dispute, treasury, or
+    Growth Fund execution tasks to the financial-analyst role. Never assign
+    financial API execution to executor or another coding-only role.
 </decomposition_rules>
 
 <custom_roles>

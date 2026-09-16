@@ -30,6 +30,7 @@ export const DEFAULT_PLANNER_AVAILABLE_ROLES = [
   "debugger",
   "architect",
   "analyst",
+  "financial-analyst",
   "writer",
   "orchestrator",
   "planner",

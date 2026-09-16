@@ -179,7 +179,7 @@ You follow a strict planner-backed plan → execute → verify → fix cycle:
             description: { type: "string", description: "Detailed description including success criteria" },
             role: {
               type: "string",
-              description: "Agent role: executor (coding), researcher (info gathering), tester (verification), generalist (other)",
+              description: "Agent role: executor (coding), researcher (info gathering), tester (verification), financial-analyst (Stripe, payments, revenue, and Growth Fund), generalist (other)",
             },
             priority: { type: "number", description: "Priority 0-100 (default: 50)" },
             depends_on: {
@@ -401,7 +401,15 @@ You follow a strict planner-backed plan → execute → verify → fix cycle:
       db: this.context.db,
       workspace: this.context.workspace,
       usdcBalance: Number((this.context.config as { usdcBalance?: number } | undefined)?.usdcBalance ?? 0),
-      availableRoles: ["executor", "researcher", "tester", "generalist", "orchestrator", "critic"],
+      availableRoles: [
+        "executor",
+        "researcher",
+        "tester",
+        "generalist",
+        "financial-analyst",
+        "orchestrator",
+        "critic",
+      ],
       idleAgents: 0,
       busyAgents: Math.max(1, this.getManagedTasks().filter((task) => task.status === "assigned" || task.status === "running").length),
       maxAgents: Math.max(1, Number(this.context.config?.maxChildren ?? this.getManagedTasks().length ?? 1)),
