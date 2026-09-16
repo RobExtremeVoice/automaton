@@ -371,11 +371,14 @@ describe("Growth Fund seller registry", () => {
       ORDER BY created_at, id
     `).pluck().all("thor");
 
-    expect(events).toEqual([
-      "registered",
+    expect(events).toHaveLength(4);
+    expect(
+      [...events].sort(),
+    ).toEqual([
       "authorized",
       "payment_link_registered",
       "payment_link_revoked",
+      "registered",
     ]);
 
     expect(

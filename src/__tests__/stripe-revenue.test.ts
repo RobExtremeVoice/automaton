@@ -1,8 +1,70 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { ToolContext } from "../types.js";
+import {
+  createDatabase,
+} from "../state/database.js";
+import {
+  authorizeGrowthFundSeller,
+  registerGrowthFundSeller,
+  resolveAuthorizedPaymentLinkSeller,
+} from "../finance/seller-registry.js";
 import { createStripeRevenueTools } from "../integrations/stripe-revenue.js";
 
 const context = {} as ToolContext;
+
+let registryDatabase:
+  | ReturnType<typeof createDatabase>
+  | undefined;
+let registryDirectory: string | undefined;
+
+function registeredContext(
+  authorize = true,
+): ToolContext {
+  registryDirectory = fs.mkdtempSync(
+    path.join(
+      os.tmpdir(),
+      "stripe-revenue-registry-",
+    ),
+  );
+
+  registryDatabase = createDatabase(
+    path.join(
+      registryDirectory,
+      "state.db",
+    ),
+  );
+
+  registerGrowthFundSeller(
+    registryDatabase.raw,
+    {
+      sellerId: "thor",
+      sellerType: "root",
+      walletAddress:
+        "0x3333333333333333333333333333333333333333",
+    },
+  );
+
+  if (authorize) {
+    authorizeGrowthFundSeller(
+      registryDatabase.raw,
+      "thor",
+    );
+  }
+
+  return {
+    db: registryDatabase,
+  } as ToolContext;
+}
 
 function response(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -32,6 +94,20 @@ describe("Stripe revenue tools", () => {
   });
 
   afterEach(() => {
+    registryDatabase?.close();
+    registryDatabase = undefined;
+
+    if (registryDirectory) {
+      fs.rmSync(
+        registryDirectory,
+        {
+          recursive: true,
+          force: true,
+        },
+      );
+    }
+
+    registryDirectory = undefined;
     vi.unstubAllGlobals();
     delete process.env.STRIPE_RESTRICTED_KEY;
     delete process.env.STRIPE_MODE;
@@ -133,10 +209,23 @@ describe("Stripe revenue tools", () => {
       id: "plink_123", url: "https://buy.stripe.com/test", active: true,
     }));
     vi.stubGlobal("fetch", fetchMock);
+    const registryContext =
+      registeredContext();
+
     const result = JSON.parse(await tool("stripe_create_payment_link").execute(
-      { priceId: "price_123", quantity: 1, metadata: { offer: "pilot" } }, context,
+      { priceId: "price_123", quantity: 1, metadata: { offer: "pilot" } },
+      registryContext,
     ));
+
     expect(result.paymentLinkId).toBe("plink_123");
+    expect(result.registrySynced).toBe(true);
+    expect(
+      resolveAuthorizedPaymentLinkSeller(
+        registryDatabase!.raw,
+        "plink_123",
+        false,
+      ),
+    ).toBe("thor");
 
     const requestBody = new URLSearchParams(
       fetchMock.mock.calls[0][1].body,
@@ -163,6 +252,112 @@ describe("Stripe revenue tools", () => {
     expect(
       fetchMock.mock.calls[0][1].body,
     ).toContain("after_completion");
+  });
+
+  it("registers repeated Payment Link responses idempotently", async () => {
+    const registryContext =
+      registeredContext();
+
+    const fetchMock = vi.fn().mockImplementation(
+      async () =>
+        response({
+          id: "plink_repeat",
+          url: "https://buy.stripe.com/test-repeat",
+          active: true,
+          livemode: false,
+        }),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const args = {
+      priceId: "price_repeat",
+      quantity: 1,
+    };
+
+    const first = JSON.parse(
+      await tool(
+        "stripe_create_payment_link",
+      ).execute(
+        args,
+        registryContext,
+      ),
+    );
+
+    const second = JSON.parse(
+      await tool(
+        "stripe_create_payment_link",
+      ).execute(
+        args,
+        registryContext,
+      ),
+    );
+
+    const linkCount = Number(
+      registryDatabase!.raw.prepare(`
+        SELECT COUNT(*)
+        FROM growth_fund_payment_links
+        WHERE payment_link_id = ?
+      `).pluck().get("plink_repeat"),
+    );
+
+    const registrationEvents = Number(
+      registryDatabase!.raw.prepare(`
+        SELECT COUNT(*)
+        FROM growth_fund_seller_events
+        WHERE event_type =
+          'payment_link_registered'
+          AND payment_link_id = ?
+      `).pluck().get("plink_repeat"),
+    );
+
+    expect(first.registrySynced).toBe(true);
+    expect(second.registrySynced).toBe(true);
+    expect(linkCount).toBe(1);
+    expect(registrationEvents).toBe(1);
+  });
+
+  it("rejects link registration for a pending seller", async () => {
+    const pendingContext =
+      registeredContext(false);
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      response({
+        id: "plink_pending",
+        url: "https://buy.stripe.com/test-pending",
+        active: true,
+        livemode: false,
+      }),
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      fetchMock,
+    );
+
+    await expect(
+      tool(
+        "stripe_create_payment_link",
+      ).execute(
+        {
+          priceId: "price_pending",
+        },
+        pendingContext,
+      ),
+    ).rejects.toThrow(
+      "Payment Link seller is not authorized",
+    );
+
+    const linkCount = Number(
+      registryDatabase!.raw.prepare(`
+        SELECT COUNT(*)
+        FROM growth_fund_payment_links
+        WHERE payment_link_id = ?
+      `).pluck().get("plink_pending"),
+    );
+
+    expect(linkCount).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("blocks agent-controlled attribution metadata", async () => {

@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import type { AutomatonTool } from "../types.js";
+import {
+  isGrowthFundSellerAuthorized,
+  registerGrowthFundPaymentLink,
+} from "../finance/seller-registry.js";
 
 const API_BASE = "https://api.stripe.com";
 
@@ -333,7 +337,7 @@ export function createStripeRevenueTools(): AutomatonTool[] {
         required: ["priceId"],
         additionalProperties: false,
       },
-      execute: async (args) => {
+      execute: async (args, context) => {
         const config = getConfig();
         const priceId = identifier(args.priceId, "priceId", "price_");
         const quantity = args.quantity === undefined ? 1 : args.quantity;
@@ -342,6 +346,18 @@ export function createStripeRevenueTools(): AutomatonTool[] {
         }
         const meta = metadata(args.metadata);
         const sellerId = growthFundSellerId();
+
+        if (
+          !isGrowthFundSellerAuthorized(
+            context.db.raw,
+            sellerId,
+          )
+        ) {
+          throw new Error(
+            "Payment Link seller is not authorized",
+          );
+        }
+
         const managedMetadata = {
           ...meta,
           automaton_growth_fund: "eligible",
@@ -384,11 +400,30 @@ export function createStripeRevenueTools(): AutomatonTool[] {
             },
           ),
         );
+        const paymentLinkId = identifier(
+          result.id,
+          "Stripe Payment Link ID",
+          "plink_",
+        );
+
+        const livemode =
+          result.livemode === true;
+
+        registerGrowthFundPaymentLink(
+          context.db.raw,
+          {
+            paymentLinkId,
+            sellerId,
+            livemode,
+          },
+        );
+
         return JSON.stringify({
-          paymentLinkId: result.id ?? null,
+          paymentLinkId,
           url: result.url ?? null,
           active: result.active ?? true,
-          livemode: result.livemode ?? false,
+          livemode,
+          registrySynced: true,
         });
       },
     },
