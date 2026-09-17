@@ -4,6 +4,7 @@ import type { AutomatonIdentity } from "../types.js";
 import { createLogger } from "../observability/logger.js";
 import {
   assignTask,
+  cancelIncompleteTasksForReplan,
   completeTask,
   decomposeGoal,
   failTask,
@@ -647,7 +648,7 @@ export class Orchestrator {
 
     const progress = getGoalProgress(this.params.db, goal.id);
 
-    if (progress.total > 0 && progress.completed === progress.total) {
+    if (progress.total > 0 && progress.completed + progress.cancelled === progress.total) {
       updateGoalStatus(this.params.db, goal.id, "completed");
       return {
         ...state,
@@ -754,16 +755,7 @@ export class Orchestrator {
       };
     }
 
-    this.params.db.prepare(
-      `UPDATE task_graph
-       SET status = 'pending',
-           assigned_to = NULL,
-           started_at = NULL,
-           completed_at = NULL,
-           result = NULL
-       WHERE goal_id = ?
-         AND status IN ('failed', 'blocked')`,
-    ).run(goal.id);
+    cancelIncompleteTasksForReplan(this.params.db, goal.id);
 
     updateGoalStatus(this.params.db, goal.id, "active");
 
