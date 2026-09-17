@@ -248,6 +248,12 @@ describe("orchestration/Orchestrator", () => {
       const orc = makeOrchestrator(db, { inference: inference as any });
       const result = await orc.tick();
       expect(result.phase).toBe("plan_review");
+
+      expect(
+        db.prepare(
+          "SELECT estimated_cost_cents AS estimatedCostCents, timeout_ms AS timeoutMs FROM task_graph WHERE goal_id = ?",
+        ).get(goalId),
+      ).toEqual({ estimatedCostCents: 50, timeoutMs: 60000 });
     });
 
     it("plan_review with plan in KV auto-approves (auto mode) and transitions to executing", async () => {
