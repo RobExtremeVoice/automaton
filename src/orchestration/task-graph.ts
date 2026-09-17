@@ -68,7 +68,12 @@ export interface Goal {
   deadline: string | null;
 }
 
-type DecomposeTaskInput = Omit<TaskNode, "id" | "metadata">;
+type DecomposeTaskInput = Omit<TaskNode, "id" | "metadata"> & {
+  metadata?: Partial<Pick<
+    TaskNode["metadata"],
+    "estimatedCostCents" | "actualCostCents" | "maxRetries" | "retryCount" | "timeoutMs"
+  >>;
+};
 
 type CycleTask = {
   id?: string;
@@ -192,6 +197,11 @@ export function decomposeGoal(
         priority: planned.task.priority,
         dependencies: dependencyRefs,
         result: planned.task.result,
+        estimatedCostCents: planned.task.metadata?.estimatedCostCents,
+        actualCostCents: planned.task.metadata?.actualCostCents,
+        maxRetries: planned.task.metadata?.maxRetries,
+        retryCount: planned.task.metadata?.retryCount,
+        timeoutMs: planned.task.metadata?.timeoutMs,
       });
 
       localToPersisted.set(planned.localId, taskId);
