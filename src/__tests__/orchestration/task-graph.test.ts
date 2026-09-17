@@ -621,6 +621,7 @@ describe("orchestration/task-graph", () => {
         failed: 1,
         blocked: 1,
         running: 2,
+        cancelled: 0,
       });
     });
 
@@ -631,6 +632,7 @@ describe("orchestration/task-graph", () => {
         failed: 0,
         blocked: 0,
         running: 0,
+        cancelled: 0,
       });
     });
   });
