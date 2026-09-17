@@ -1005,7 +1005,11 @@ export class Orchestrator {
   }
 }
 
-function plannerOutputToTasks(goalId: string, output: PlannerOutput): Omit<TaskNode, "id" | "metadata">[] {
+function plannerOutputToTasks(goalId: string, output: PlannerOutput): Array<
+  Omit<TaskNode, "id" | "metadata"> & {
+    metadata: Pick<TaskNode["metadata"], "estimatedCostCents" | "timeoutMs">;
+  }
+> {
   return output.tasks.map((task, index) => ({
     parentId: null,
     goalId,
@@ -1017,6 +1021,10 @@ function plannerOutputToTasks(goalId: string, output: PlannerOutput): Omit<TaskN
     priority: clampPriority(task.priority, index),
     dependencies: task.dependencies.map((dep) => String(dep)),
     result: null,
+    metadata: {
+      estimatedCostCents: task.estimatedCostCents,
+      timeoutMs: task.timeoutMs,
+    },
   }));
 }
 
