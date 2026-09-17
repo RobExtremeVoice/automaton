@@ -544,6 +544,10 @@ export class Orchestrator {
           this.params.db.prepare(
             "UPDATE task_graph SET status = 'pending', assigned_to = NULL, started_at = NULL WHERE id = ?",
           ).run(task.id);
+          this.params.db.prepare(
+            "UPDATE children SET status = 'dead' WHERE address = ? AND status IN ('running', 'healthy')",
+          ).run(task.assignedTo);
+          this.params.agentTracker.updateStatus(task.assignedTo!, "dead");
         }
       }
     }
