@@ -325,7 +325,14 @@ export function failTask(db: Database, taskId: string, error: string, shouldRetr
 export function getGoalProgress(
   db: Database,
   goalId: string,
-): { total: number; completed: number; failed: number; blocked: number; running: number } {
+): {
+  total: number;
+  completed: number;
+  failed: number;
+  blocked: number;
+  running: number;
+  cancelled: number;
+} {
   const row = db
     .prepare(
       `SELECT
@@ -333,7 +340,8 @@ export function getGoalProgress(
          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
          SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
          SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked,
-         SUM(CASE WHEN status IN ('assigned', 'running') THEN 1 ELSE 0 END) AS running
+         SUM(CASE WHEN status IN ('assigned', 'running') THEN 1 ELSE 0 END) AS running,
+         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled
        FROM task_graph
        WHERE goal_id = ?`,
     )
@@ -344,6 +352,7 @@ export function getGoalProgress(
         failed: number | null;
         blocked: number | null;
         running: number | null;
+        cancelled: number | null;
       }
     | undefined;
 
@@ -353,7 +362,23 @@ export function getGoalProgress(
     failed: row?.failed ?? 0,
     blocked: row?.blocked ?? 0,
     running: row?.running ?? 0,
+    cancelled: row?.cancelled ?? 0,
   };
+}
+
+/**
+ * Archives unfinished work from a plan that is being replaced.  Cancelled
+ * tasks are terminal, never become ready, and retain their result for audit.
+ */
+export function cancelIncompleteTasksForReplan(db: Database, goalId: string): number {
+  return withTransaction(db, () => db.prepare(
+    `UPDATE task_graph
+     SET status = 'cancelled',
+         assigned_to = NULL,
+         completed_at = COALESCE(completed_at, ?)
+     WHERE goal_id = ?
+       AND status NOT IN ('completed', 'cancelled')`,
+  ).run(new Date().toISOString(), goalId).changes);
 }
 
 export function pruneCompletedGoals(db: Database, olderThan: string): void {
@@ -647,7 +672,7 @@ function refreshGoalStatus(db: Database, goalId: string): void {
     return;
   }
 
-  if (progress.completed === progress.total) {
+  if (progress.completed + progress.cancelled === progress.total) {
     updateGoalStatus(db, goalId, "completed");
     return;
   }
