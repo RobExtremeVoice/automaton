@@ -618,6 +618,78 @@ describe("orchestration/Orchestrator", () => {
       expect(state?.failedError).toBe("some error");
     });
 
+    it("archives the superseded plan instead of reactivating its failed tasks", async () => {
+      const goalId = insertGoal(db, { status: "active" });
+      const completedId = insertTask(db, {
+        goalId,
+        title: "already complete",
+        status: "completed",
+      });
+      const failedId = insertTask(db, {
+        goalId,
+        title: "old Stripe executor task",
+        status: "failed",
+      });
+      const blockedId = insertTask(db, {
+        goalId,
+        title: "old dependent task",
+        status: "blocked",
+        dependencies: [failedId],
+      });
+      const pendingId = insertTask(db, {
+        goalId,
+        title: "old pending task",
+        status: "pending",
+      });
+      setOrchestratorState(db, {
+        phase: "replanning",
+        goalId,
+        replanCount: 0,
+        failedTaskId: failedId,
+        failedError: "Stripe task failed",
+      });
+
+      const inference = makeInference({
+        analysis: "Use a Stripe-enabled worker.",
+        strategy: "Replace the failed plan.",
+        customRoles: [],
+        tasks: [{
+          title: "new financial task",
+          description: "Use the financial role.",
+          agentRole: "financial-analyst",
+          dependencies: [],
+          estimatedCostCents: 100,
+          priority: 50,
+          timeoutMs: 60_000,
+        }],
+        risks: [],
+        estimatedTotalCostCents: 100,
+        estimatedTimeMinutes: 5,
+      });
+      const orc = makeOrchestrator(db, { inference: inference as any });
+
+      const result = await orc.tick();
+      expect(result.phase).toBe("plan_review");
+
+      const oldStatuses = db.prepare(
+        "SELECT id, status FROM task_graph WHERE id IN (?, ?, ?, ?) ORDER BY id",
+      ).all(blockedId, completedId, failedId, pendingId) as Array<{ id: string; status: string }>;
+      expect(new Map(oldStatuses.map((task) => [task.id, task.status]))).toEqual(new Map([
+        [completedId, "completed"],
+        [failedId, "cancelled"],
+        [blockedId, "cancelled"],
+        [pendingId, "cancelled"],
+      ]));
+
+      const reactivatedOldTasks = db.prepare(
+        "SELECT COUNT(*) AS count FROM task_graph WHERE id IN (?, ?, ?) AND status = 'pending'",
+      ).pluck().get(failedId, blockedId, pendingId);
+      expect(reactivatedOldTasks).toBe(0);
+      expect(db.prepare(
+        "SELECT COUNT(*) FROM task_graph WHERE goal_id = ? AND title = ? AND status = 'pending'",
+      ).pluck().get(goalId, "new financial task")).toBe(1);
+    });
+
     it("transitions to failed when replanCount >= maxReplans", async () => {
       const goalId = insertGoal(db, { status: "active" });
       // max_retries=0 so failTask marks it permanently failed (no retry budget)
