@@ -122,7 +122,7 @@ export function createGoal(
 export function decomposeGoal(
   db: Database,
   goalId: string,
-  tasks: Omit<TaskNode, "id" | "metadata">[],
+  tasks: DecomposeTaskInput[],
 ): void {
   if (!getGoalById(db, goalId)) {
     throw new Error(`Goal not found: ${goalId}`);
